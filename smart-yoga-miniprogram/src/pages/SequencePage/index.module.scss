@@ -1,0 +1,184 @@
+/* SequencePage specific styles */
+.container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 100vh;
+  background-color: #f8f9fa; // Light background for the whole page
+}
+
+.centeredMessage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  font-size: 16px;
+  color: #555;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.backButton {
+  padding: 8px;
+}
+
+.backButtonText {
+  font-size: 28px;
+  color: #2d3748;
+  font-weight: bold;
+}
+
+.headerTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2d3748;
+  text-align: center;
+  flex: 1; // Allow title to take space and center
+}
+
+.progressText {
+  font-size: 14px;
+  color: #718096;
+  min-width: 60px; // Ensure consistent spacing
+  text-align: right;
+}
+
+.content {
+  flex: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto; // Allow content to scroll if it overflows
+}
+
+.poseImageContainer {
+  width: 100%;
+  // aspect-ratio: 16 / 9; // Modern CSS, or use padding-top trick if not supported
+  padding-top: 75%; // For aspect ratio 4:3, adjust as needed e.g. 56.25% for 16:9
+  position: relative;
+  background-color: #e9ecef; // Placeholder while image loads
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.poseImage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.poseInfo {
+  background-color: #ffffff;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.poseName {
+  font-size: 22px;
+  font-weight: bold;
+  color: #2d3748;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.instructions {
+  font-size: 15px;
+  color: #4a5568;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.transitionHint {
+  font-size: 14px;
+  color: #718096;
+  font-style: italic;
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.statsContainer {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.timerText,
+.breathText {
+  font-size: 16px;
+  color: #333;
+  font-weight: 500;
+}
+
+.cameraPlaceholder { // Style for the TODO comment if it were visible
+  text-align: center;
+  padding: 20px;
+  margin-bottom: 20px;
+  background-color: #f0f0f0;
+  border-radius: 8px;
+  color: #777;
+}
+
+.controls {
+  display: flex;
+  justify-content: space-around; // Distribute buttons evenly
+  align-items: center;
+  padding: 10px 0;
+  margin-top: auto; // Push controls to the bottom if content is short
+  gap: 10px; // For spacing between buttons, use margins if not supported
+}
+
+.controlButton {
+  flex: 1; // Allow buttons to share space
+  padding: 12px 10px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer; // For web-like behavior
+  border: none; // Reset default button border
+  color: #fff;
+  background-color: #5a67d8; // Default button color (purple-ish blue)
+  transition: background-color 0.2s ease;
+
+  &:active { // Simulate press effect
+    opacity: 0.8;
+  }
+}
+
+.playButton { // Specific style if needed, e.g. Play is green
+  background-color: #38a169; // Green
+}
+
+.pauseButton { // Specific style if needed, e.g. Pause is yellow/orange
+  background-color: #dd6b20; // Orange
+}
+
+// Ensure Button component from Taro takes these styles correctly.
+// Might need to adjust if default Taro Button styles interfere.
+// For example, ensure no !important overrides from framework if styles don't apply.
+// Taro buttons are native components on mini-program, styling can be tricky.
+// If using <View onTap={...}> for buttons, these styles apply more directly.
+// The TSX uses <Button>, so these should generally work.
+// Add specific class for "Next/Complete" if it needs different color e.g. blue
+// .nextButton { background-color: #3182ce; }
+// .completeButton { background-color: #4a5568; }

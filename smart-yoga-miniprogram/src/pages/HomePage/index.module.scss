@@ -1,0 +1,76 @@
+/* HomePage specific styles */
+.container {
+  flex: 1;
+  background-color: #fafafa;
+  display: flex; // Needed for flex:1 to take effect if parent is not flex
+  flex-direction: column; // Ensure children stack vertically
+  min-height: 100vh; // Ensure it takes full viewport height
+}
+
+.content {
+  flex: 1;
+  padding: 60px 24px 24px; // Adjusted padding: top, horizontal, bottom
+}
+
+.header {
+  align-items: center;
+  text-align: center; // For text centering within the block
+  margin-bottom: 60px;
+}
+
+.title {
+  font-size: 32px;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  font-size: 16px;
+  color: #718096;
+}
+
+.buttonContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px; // Modern CSS for spacing, works in most recent mini-program environments
+}
+
+.button {
+  border-radius: 16px;
+  overflow: hidden; // Important for ensuring border-radius clips the gradient
+  padding: 24px 20px; // Replaces buttonGradient padding
+  align-items: center; // For text content if it's not block or full width
+  text-align: center; // Ensure text inside is centered
+  border: 1px solid #e2e8f0; // Subtle border as a shadow replacement
+  
+  // Default text colors, can be overridden if needed by specific button styles
+  .buttonText {
+    font-size: 20px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 4px;
+  }
+
+  .buttonSubtext {
+    font-size: 14px;
+    color: #718096;
+  }
+}
+
+// Specific button styles for gradients
+.beginnerButton {
+  background: linear-gradient(to bottom, #e8f5e8, #f0f8f0);
+}
+
+.intermediateButton {
+  background: linear-gradient(to bottom, #e8f0ff, #f0f6ff);
+}
+
+.advancedButton {
+  background: linear-gradient(to bottom, #fff0e8, #fff6f0);
+}
+
+.meditationButton {
+  background: linear-gradient(to bottom, #f8e8ff, #fcf0ff);
+}
