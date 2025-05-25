@@ -17,7 +17,7 @@
       <view bindtap="handleBack" class="backButton">
         <text class="backButtonText">←</text>
       </view>
-      <text class="headerTitle">{{currentSequence.name}} - {{currentPoseIndex + 1}}/{{currentSequence.poses.length}}</text>
+      <text class="headerTitle">{{currentSequence.name.zh}} - {{currentPoseIndex + 1}}/{{currentSequence.poses.length}}</text>
       <view class="placeholderView" />
     </view>
 
@@ -26,8 +26,9 @@
         src="{{currentSequence.poses[currentPoseIndex].image_url}}" 
         class="poseImage" 
         mode="aspectFit"
+        binderror="onImageError"
       />
-      <text class="poseName">{{currentSequence.poses[currentPoseIndex].name}}</text>
+      <text class="poseName">{{currentSequence.poses[currentPoseIndex].displayName || currentSequence.poses[currentPoseIndex].name.zh}}</text>
       <text class="poseInstructions">{{currentSequence.poses[currentPoseIndex].instructions}}</text>
       <text class="timerText">{{timeRemaining}}s</text>
     </view>

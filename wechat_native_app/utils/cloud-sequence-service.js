@@ -72,14 +72,31 @@ function processSequenceData(sequenceJson) {
   if (processed.poses && Array.isArray(processed.poses)) {
     processed.poses = processed.poses.map(pose => {
       const newPose = { ...pose };
+      // If audioGuide is provided in the data, map it; otherwise, generate from pose ID.
       if (newPose.audioGuide) {
         newPose.audioGuide = mapResourceUrl(newPose.audioGuide, 'pose_audio');
+      } else {
+        // Ensure newPose.id is valid before using it
+        if (newPose.id) {
+          newPose.audioGuide = mapResourceUrl(newPose.id, 'pose_audio');
+        } else {
+          // Handle case where newPose.id might be missing, though JSDoc implies it's mandatory
+          console.warn("Pose ID is missing, cannot generate audioGuide URL for pose:", newPose);
+          newPose.audioGuide = ''; // Set to empty or some default placeholder
+        }
       }
-      // The pose.id is used to generate the image_url
-      // The original JSDoc for Pose didn't have image_url, but it's a common requirement.
-      // The SequenceScreen's JS used image_url from a mock.
-      // Here, we generate it based on pose.id, assuming pose.id is the image filename base.
-      newPose.image_url = mapResourceUrl(newPose.id, 'pose_image');
+      
+      // If image_url is not provided in the data, generate it from pose ID.
+      if (!newPose.image_url) {
+        // Ensure newPose.id is valid before using it
+        if (newPose.id) {
+          newPose.image_url = mapResourceUrl(newPose.id, 'pose_image');
+        } else {
+          // Handle case where newPose.id might be missing
+          console.warn("Pose ID is missing, cannot generate image_url for pose:", newPose);
+          newPose.image_url = ''; // Set to empty or some default placeholder
+        }
+      }
       return newPose;
     });
   }

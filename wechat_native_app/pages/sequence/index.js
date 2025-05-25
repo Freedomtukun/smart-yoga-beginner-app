@@ -2,6 +2,8 @@
 const cloudSequenceService = require('../../utils/cloud-sequence-service.js');
 const sequenceService = require('../../utils/sequence-service.js');
 
+const getText = v => (typeof v === 'object' ? (v.zh || v.en || '') : v);
+
 Page({
   data: {
     level: '',
@@ -37,7 +39,7 @@ Page({
       // Logic for when audio naturally ends
     });
     this.data.soundContext.onError((res) => {
-      console.error('Audio Error:', res.errMsg);
+      console.warn('Audio Error for URL:', this.data.soundContext.src, 'Error:', res.errMsg);
       wx.showToast({ title: '音频播放失败', icon: 'none' });
     });
   },
@@ -59,7 +61,7 @@ Page({
         wx.hideLoading();
         // Assuming sequenceData.name is {en: "...", zh: "..."} as per JSDoc
         // and cloudSequenceService returns data in this structure.
-        wx.setNavigationBarTitle({ title: `${initialState.currentSequence.name.zh} - ${initialState.currentPoseIndex + 1}/${initialState.currentSequence.poses.length}` });
+        wx.setNavigationBarTitle({ title: `${getText(initialState.currentSequence.name)} - ${initialState.currentPoseIndex + 1}/${initialState.currentSequence.poses.length}` });
       } else {
         console.error('No sequence data or empty poses array returned for level:', level);
         throw new Error('加载的序列数据无效'); // More user-friendly error
@@ -152,7 +154,7 @@ Page({
         timeRemaining: nextState.timeRemaining_new,
       });
       // currentSequence.name.zh should be available if loadSequenceData was successful
-      wx.setNavigationBarTitle({ title: `${currentSequence.name.zh} - ${nextState.currentPoseIndex_new + 1}/${currentSequence.poses.length}` });
+      wx.setNavigationBarTitle({ title: `${getText(currentSequence.name)} - ${nextState.currentPoseIndex_new + 1}/${currentSequence.poses.length}` });
       
       if (this.data.isPlaying) {
         const newCurrentPose = currentSequence.poses[nextState.currentPoseIndex_new];
@@ -299,6 +301,18 @@ Page({
   // --- Score Modal Methods ---
   closeScoreModal: function () {
     this.setData({ showScoreModal: false, poseScore: null });
+  },
+
+  onImageError: function(e) {
+    const currentImageUrl = this.data.currentSequence && 
+                              this.data.currentSequence.poses[this.data.currentPoseIndex] &&
+                              this.data.currentSequence.poses[this.data.currentPoseIndex].image_url;
+    if (currentImageUrl) {
+      console.warn('Image load error for URL:', currentImageUrl, 'Error details:', e.detail.errMsg);
+    } else {
+      // Fallback if current pose data or image_url is somehow not available when error fires
+      console.warn('Image load error, current pose image_url unavailable. Event src:', e.target.id || e.target.src, 'Error details:', e.detail.errMsg);
+    }
   },
 
   onUnload: function () {
