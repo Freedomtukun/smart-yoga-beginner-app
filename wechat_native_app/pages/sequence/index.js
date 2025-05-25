@@ -66,14 +66,33 @@ Page({
       }
     } catch (err) {
       console.error('Failed to load sequence:', err);
+      let userErrorMessage = '无法加载序列数据，请稍后重试。';
+      let toastMessage = '加载失败，请稍后重试';
+
+      if (err && err.message === 'MISSING_SIGNED_URL') {
+        userErrorMessage = '序列配置获取失败，请检查网络或稍后重试。';
+        toastMessage = '序列配置获取失败';
+      } else if (err && err.message) { // Covers '加载的序列数据无效' and other specific messages from cloud service
+        // Keep existing behavior for other specific errors if err.message is somewhat user-friendly
+        // or create a more generic one.
+        // For this case, let's make it generic if not MISSING_SIGNED_URL
+        userErrorMessage = '加载序列时发生错误，请稍后重试。'; // As per current prompt's example
+        toastMessage = '加载错误'; // As per current prompt's example
+        // If we want to retain the specific error message from the throw:
+        // userErrorMessage = err.message; 
+        // toastMessage = err.message.length > 20 ? '加载错误' : err.message; // Keep toast short
+      }
+      // For other generic errors where err.message might be empty/undefined, 
+      // the default userErrorMessage and toastMessage will be used.
+
       this.setData({
         loading: false,
-        error: err.message || '无法加载序列数据，请稍后重试。',
+        error: userErrorMessage,
         currentSequence: null,
       });
       wx.hideLoading();
-      wx.showToast({ title: err.message || '加载失败', icon: 'none' });
-      wx.setNavigationBarTitle({ title: '错误' });
+      wx.showToast({ title: toastMessage, icon: 'none' });
+      wx.setNavigationBarTitle({ title: '加载错误' }); // More generic title on error
     }
   },
 

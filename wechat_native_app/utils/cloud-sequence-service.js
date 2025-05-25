@@ -125,9 +125,19 @@ async function getProcessedSequence(level) {
 
     console.log('Cloud function result:', cloudResult);
 
-    if (cloudResult.result && cloudResult.result.signedUrl) {
-      const signedUrl = cloudResult.result.signedUrl;
-      
+    // Potentially, different cloud function versions or configurations might return 'url' instead of 'signedUrl'.
+    // This service handles both to be more robust.
+    let signedUrl = null;
+    if (cloudResult.result) {
+      if (cloudResult.result.signedUrl) {
+        signedUrl = cloudResult.result.signedUrl;
+      } else if (cloudResult.result.url) {
+        signedUrl = cloudResult.result.url;
+        console.log("Used 'url' field from cloud function result as fallback for signed URL.");
+      }
+    }
+
+    if (signedUrl) {
       return new Promise((resolve, reject) => {
         wx.request({
           url: signedUrl,
@@ -156,13 +166,14 @@ async function getProcessedSequence(level) {
         });
       });
     } else {
-      console.error('Cloud function did not return a signedUrl or result:', cloudResult);
-      throw new Error('Invalid response from cloud function for fetching sequence.');
+      console.error("Cloud function result missing 'signedUrl' and 'url' fields, or result object is missing. Full result:", cloudResult);
+      // Ensure a specific error message or type is thrown so the page can identify this specific issue.
+      throw new Error('MISSING_SIGNED_URL'); 
     }
   } catch (error) {
     console.error('Error calling cloud function or processing sequence:', error);
-    // Rethrow or return a structured error. For simplicity, rethrowing.
-    // In a real app, might want to return a user-friendly error object or code.
+    // Rethrow or return a structured error. If it's already an error with a specific message (like MISSING_SIGNED_URL), it will be rethrown.
+    // If it's a generic error from wx.cloud.callFunction, that will be rethrown.
     throw error; 
   }
 }
