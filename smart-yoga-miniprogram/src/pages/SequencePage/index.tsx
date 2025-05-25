@@ -4,9 +4,9 @@ import Taro, { useLoad, useUnload, useRouter } from '@tarojs/taro';
 import { useSequenceStore } from '../../store/sequenceStore';
 import { loadPoseSequence } from '../../services/yogaApi';
 import styles from './index.module.scss';
-import { COS_BASE_URL } from '../../config/constants';
+import { POSE_IMAGE_BASE_URL } from '../../config/resources';
+import * as i18n from '../../config/i18n';
 
-const POSE_IMAGE_BASE_URL = `${COS_BASE_URL}/images/poses/`;
 // Audio base URL for pose guidance is embedded in the pose data itself (audioGuide field)
 
 export default function SequencePage() {
@@ -42,8 +42,9 @@ export default function SequencePage() {
       const sequenceData = await loadPoseSequence(level);
       setSequence(sequenceData);
     } catch (e: any) {
-      console.error('Failed to load sequence:', e);
-      setError(e.message || '加载序列失败，请稍后重试。');
+      const errorMessage = e.message || i18n.TOAST_LOAD_SEQUENCE_FAILED_DEFAULT;
+      setError(errorMessage);
+      Taro.showToast({ title: errorMessage, icon: 'none' });
     } finally {
       setLoading(false);
     }
@@ -53,9 +54,9 @@ export default function SequencePage() {
     poseAudioContextRef.current.onEnded(() => {
       // Optional: Handle audio ending, e.g., auto-play timer if not already playing
     });
-    poseAudioContextRef.current.onError((res) => {
-      console.error('Pose guidance audio error:', res); // Log the full error object
-      Taro.showToast({ title: '当前音频加载失败', icon: 'none' }); // Specific toast for pose guidance
+    poseAudioContextRef.current.onError((_res) => {
+      // Pose guidance audio error, toast is shown
+      Taro.showToast({ title: i18n.TOAST_POSE_AUDIO_LOAD_FAILED, icon: 'none' }); // Specific toast for pose guidance
     });
   });
 
@@ -70,7 +71,7 @@ export default function SequencePage() {
         nextPose(); // Automatically advance to next pose
       } else {
         togglePlayPause(); // Stop playing if it's the last pose
-        Taro.showToast({ title: '序列完成!', icon: 'success' });
+        Taro.showToast({ title: i18n.TOAST_SEQUENCE_COMPLETE, icon: 'success' });
       }
     }
     return () => {
@@ -88,7 +89,9 @@ export default function SequencePage() {
       audioCtx.stop(); // Stop previous audio if any
       audioCtx.src = currentPose.audioGuide;
       audioCtx.play()
-        .catch(err => console.error("Error playing pose audio:", err));
+        .catch(_err => {
+          Taro.showToast({ title: i18n.TOAST_AUDIO_PLAY_FAILED, icon: 'none' });
+        });
     } else if (!isPlaying && poseAudioContextRef.current?.src) {
       // If paused and audio was playing (src is set), pause it.
       // Note: play() above handles the isPlaying case. This is for explicit pause.
@@ -136,30 +139,30 @@ export default function SequencePage() {
       audioCtx.stop();
       audioCtx.src = currentPose.audioGuide;
       audioCtx.play()
-        .catch(err => {
-          console.error("Error playing pose guidance manually:", err);
-          Taro.showToast({ title: '音频播放失败', icon: 'none' });
+        .catch(_err => {
+          // Error playing pose guidance manually, toast is shown
+          Taro.showToast({ title: i18n.TOAST_AUDIO_PLAY_FAILED, icon: 'none' });
         });
     } else {
-      Taro.showToast({ title: '当前体式无音频指导', icon: 'none' });
+      Taro.showToast({ title: i18n.TOAST_NO_POSE_GUIDANCE_AUDIO, icon: 'none' });
     }
   };
 
   if (loading) {
-    return <View className={styles.centeredMessage}><Text>加载中...</Text></View>;
+    return <View className={styles.centeredMessage}><Text>{i18n.COMMON_LOADING}</Text></View>;
   }
   if (error) {
-    return <View className={styles.centeredMessage}><Text>错误: {error}</Text></View>;
+    return <View className={styles.centeredMessage}><Text>{i18n.COMMON_ERROR_PREFIX}{error}</Text></View>;
   }
   if (!currentSequence || !currentPose) {
-    return <View className={styles.centeredMessage}><Text>未找到序列数据。</Text></View>;
+    return <View className={styles.centeredMessage}><Text>{i18n.SEQUENCE_NO_DATA_FOUND}</Text></View>;
   }
 
   return (
     <View className={styles.container}>
       <View className={styles.header}>
         <View onTap={handleBack} className={styles.backButton}>
-          <Text className={styles.backButtonText}>‹</Text>
+          <Text className={styles.backButtonText}>{i18n.COMMON_BACK_BUTTON}</Text>
         </View>
         <Text className={styles.headerTitle}>{currentSequence.name.zh}</Text>
         <Text className={styles.progressText}>
@@ -173,8 +176,8 @@ export default function SequencePage() {
             src={`${POSE_IMAGE_BASE_URL}${currentPose.id}.jpg`}
             className={styles.poseImage}
             mode="aspectFit" // Or aspectFill, depending on desired crop
-            onError={(e) => {
-              console.error(`Failed to load pose image: ${POSE_IMAGE_BASE_URL}${currentPose.id}.jpg`, e.detail.errMsg);
+            onError={(_e) => {
+              Taro.showToast({ title: i18n.TOAST_IMAGE_LOAD_FAILED || '图片加载失败，请稍后重试', icon: 'none' });
             }}
           />
         </View>
@@ -183,33 +186,30 @@ export default function SequencePage() {
           <Text className={styles.poseName}>{currentPose.instructions.zh.split('。')[0]}</Text> {/* Simplified name */}
           <Text className={styles.instructions}>{currentPose.instructions.zh}</Text>
           {currentPose.transitionHint?.zh && (
-            <Text className={styles.transitionHint}>下一步: {currentPose.transitionHint.zh}</Text>
+            <Text className={styles.transitionHint}>{i18n.SEQUENCE_NEXT_STEP_PREFIX}{currentPose.transitionHint.zh}</Text>
           )}
           <View className={styles.statsContainer}>
-            <Text className={styles.timerText}>计时: {timeRemaining}s</Text>
+            <Text className={styles.timerText}>{i18n.SEQUENCE_TIMER_PREFIX}{timeRemaining}s</Text>
             {currentPose.breathCount && (
-              <Text className={styles.breathText}>呼吸: {currentPose.breathCount}次</Text>
+              <Text className={styles.breathText}>{i18n.SEQUENCE_BREATH_COUNT_PREFIX}{currentPose.breathCount}次</Text>
             )}
           </View>
         </View>
         
         {/* TODO: Future - Implement pose scoring feature */}
-        {/* <View className={styles.cameraPlaceholder}>
-          <Text>Pose Scoring Camera Area (Future)</Text>
-        </View> */}
 
         <View className={styles.controls}>
           <Button className={styles.controlButton} onTap={playCurrentPoseGuidance}>
-            播放指导
+            {i18n.SEQUENCE_PLAY_GUIDANCE_BUTTON}
           </Button>
           <Button
             className={`${styles.controlButton} ${isPlaying ? styles.pauseButton : styles.playButton}`}
             onTap={handlePlayPauseToggle}
           >
-            {isPlaying ? '暂停' : '开始'}
+            {isPlaying ? i18n.COMMON_PAUSE_BUTTON : i18n.COMMON_START_BUTTON}
           </Button>
           <Button className={styles.controlButton} onTap={handleNextAction}>
-            {currentPoseIndex < totalPoses - 1 ? '下一个' : '完成'}
+            {currentPoseIndex < totalPoses - 1 ? i18n.SEQUENCE_NEXT_BUTTON : i18n.SEQUENCE_COMPLETE_BUTTON}
           </Button>
         </View>
       </View>

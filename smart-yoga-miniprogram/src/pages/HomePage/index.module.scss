@@ -74,3 +74,21 @@
 .meditationButton {
   background: linear-gradient(to bottom, #f8e8ff, #fcf0ff);
 }
+
+.footerLinks {
+  display: flex;
+  justify-content: space-around; // Or center, or space-between
+  padding: 20px;
+  margin-top: 30px; // Add some space above the footer
+  border-top: 1px solid #eee; // Optional: a separator line
+  font-size: 12px; // Smaller font for footer
+  color: #888; // Grey color for links
+
+  .linkText {
+    // cursor: pointer; // cursor property is not supported in mini-programs
+    padding: 5px 10px;
+    // &:hover { // hover pseudo-class is not directly supported in mini-program scss like this
+    //   text-decoration: underline;
+    // }
+  }
+}

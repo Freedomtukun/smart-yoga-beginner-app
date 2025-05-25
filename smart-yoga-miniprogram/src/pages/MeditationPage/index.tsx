@@ -2,17 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Image } from '@tarojs/components';
 import Taro, { useLoad, useUnload } from '@tarojs/taro';
 import styles from './index.module.scss';
-import { COS_BASE_URL } from '../../config/constants';
-
-const MEDITATION_AUDIO_URL = `${COS_BASE_URL}/static/audio/meditation_gentle.mp3`;
-const MEDITATION_IMAGE_URL = `${COS_BASE_URL}/images/poses/meditation_lotus.jpg`;
+import { MEDITATION_AUDIO_URL, MEDITATION_IMAGE_URL } from '../../config/resources';
+import * as i18n from '../../config/i18n';
 
 export default function MeditationPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioContextRef = useRef<Taro.InnerAudioContext | null>(null);
 
   useLoad(() => {
-    console.log('Page MeditationPage loaded.');
+    // Page MeditationPage loaded.
     // Initialize audio context
     const innerAudioContext = Taro.createInnerAudioContext();
     innerAudioContext.src = MEDITATION_AUDIO_URL;
@@ -20,21 +18,21 @@ export default function MeditationPage() {
     innerAudioContext.autoplay = false; // Don't play immediately
 
     innerAudioContext.onPlay(() => {
-      console.log('Audio playing');
+      // Audio playing
       setIsPlaying(true);
     });
     innerAudioContext.onPause(() => {
-      console.log('Audio paused');
+      // Audio paused
       setIsPlaying(false);
     });
     innerAudioContext.onStop(() => {
-      console.log('Audio stopped');
+      // Audio stopped
       setIsPlaying(false);
     });
-    innerAudioContext.onError((res) => {
-      console.error('Meditation audio error:', res); // Log the full error object
+    innerAudioContext.onError((_res) => {
+      // Meditation audio error handled by Toast
       setIsPlaying(false);
-      Taro.showToast({ title: '冥想音频加载失败', icon: 'none' });
+      Taro.showToast({ title: i18n.TOAST_MEDITATION_AUDIO_LOAD_FAILED, icon: 'none' });
     });
     
     audioContextRef.current = innerAudioContext;
@@ -42,7 +40,7 @@ export default function MeditationPage() {
 
   useUnload(() => {
     if (audioContextRef.current) {
-      console.log('Unloading page, stopping and destroying audio.');
+      // Unloading page, stopping and destroying audio.
       audioContextRef.current.stop();
       audioContextRef.current.destroy();
       audioContextRef.current = null;
@@ -58,15 +56,19 @@ export default function MeditationPage() {
   const toggleMeditation = () => {
     const audioContext = audioContextRef.current;
     if (!audioContext) {
-      console.error('Audio context not initialized');
-      Taro.showToast({ title: '音频组件未准备好', icon: 'none' });
+      // Audio context not initialized, toast is shown
+      Taro.showToast({ title: i18n.TOAST_AUDIO_COMPONENT_NOT_READY, icon: 'none' });
       return;
     }
 
     if (isPlaying) {
       audioContext.pause();
     } else {
-      audioContext.play();
+      audioContext.play().catch(() => {
+        // Catch playback errors not handled by innerAudioContext.onError
+        Taro.showToast({ title: i18n.TOAST_MEDITATION_AUDIO_LOAD_FAILED, icon: 'none' });
+        setIsPlaying(false); // Ensure UI reflects that playback failed
+      });
     }
     // The isPlaying state will be updated by the onPlay/onPause event handlers
   };
@@ -75,9 +77,9 @@ export default function MeditationPage() {
     <View className={styles.container}>
       <View className={styles.header}>
         <View onTap={handleBack} className={styles.backButton}>
-          <Text className={styles.backButtonText}>‹</Text>
+          <Text className={styles.backButtonText}>{i18n.COMMON_BACK_BUTTON}</Text>
         </View>
-        <Text className={styles.headerTitle}>冥想</Text>
+        <Text className={styles.headerTitle}>{i18n.MEDITATION_HEADER_TITLE}</Text>
         <View className={styles.placeholder} />
       </View>
 
@@ -87,24 +89,24 @@ export default function MeditationPage() {
             src={MEDITATION_IMAGE_URL}
             className={styles.meditationImage}
             mode="aspectFill"
-            onError={(e) => {
-              console.error(`Failed to load meditation image: ${MEDITATION_IMAGE_URL}`, e.detail.errMsg);
+            onError={(_e) => {
+              Taro.showToast({ title: i18n.TOAST_IMAGE_LOAD_FAILED || '图片加载失败，请稍后重试', icon: 'none' });
             }}
           />
         </View>
 
         <View className={styles.meditationInfo}>
-          <Text className={styles.title}>正念冥想</Text>
+          <Text className={styles.title}>{i18n.MEDITATION_TITLE}</Text>
           <Text className={styles.description}>
-            找一个安静舒适的地方，闭上眼睛，专注于呼吸。让思绪自然流淌，不要强迫或判断。当注意力分散时，轻柔地将其带回到呼吸上。
+            {i18n.MEDITATION_DESCRIPTION}
           </Text>
           
           <View className={styles.instructions}>
-            <Text className={styles.instructionTitle}>冥想指导：</Text>
-            <Text className={styles.instructionText}>• 保持舒适的坐姿</Text>
-            <Text className={styles.instructionText}>• 轻闭双眼</Text>
-            <Text className={styles.instructionText}>• 专注于自然呼吸</Text>
-            <Text className={styles.instructionText}>• 观察思绪但不评判</Text>
+            <Text className={styles.instructionTitle}>{i18n.MEDITATION_INSTRUCTIONS_TITLE}</Text>
+            <Text className={styles.instructionText}>{i18n.MEDITATION_INSTRUCTION_ITEM_1}</Text>
+            <Text className={styles.instructionText}>{i18n.MEDITATION_INSTRUCTION_ITEM_2}</Text>
+            <Text className={styles.instructionText}>{i18n.MEDITATION_INSTRUCTION_ITEM_3}</Text>
+            <Text className={styles.instructionText}>{i18n.MEDITATION_INSTRUCTION_ITEM_4}</Text>
           </View>
         </View>
 
@@ -114,7 +116,7 @@ export default function MeditationPage() {
             onTap={toggleMeditation}
           >
             <Text className={styles.meditationButtonText}>
-              {isPlaying ? '暂停冥想' : '开始冥想'}
+              {isPlaying ? i18n.MEDITATION_PAUSE_BUTTON : i18n.MEDITATION_START_BUTTON}
             </Text>
           </View>
         </View>
