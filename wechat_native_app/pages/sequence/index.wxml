@@ -1,0 +1,102 @@
+<view class="container">
+  <!-- Loading State -->
+  <view wx:if="{{loading}}" class="loadingContainer">
+    <text class="loadingText">加载中...</text>
+    <!-- Add a custom loading animation here if desired -->
+  </view>
+
+  <!-- Error State (Simplified) -->
+  <view wx:elif="{{error}}" class="errorContainer">
+    <text class="errorText">{{error}}</text>
+    <button bindtap="loadSequenceData" data-level="{{level}}">重试</button>
+  </view>
+
+  <!-- Main Content -->
+  <block wx:else>
+    <view class="header">
+      <view bindtap="handleBack" class="backButton">
+        <text class="backButtonText">←</text>
+      </view>
+      <text class="headerTitle">{{currentSequence.name}} - {{currentPoseIndex + 1}}/{{currentSequence.poses.length}}</text>
+      <view class="placeholderView" />
+    </view>
+
+    <view class="poseContainer">
+      <image 
+        src="{{currentSequence.poses[currentPoseIndex].image_url}}" 
+        class="poseImage" 
+        mode="aspectFit"
+      />
+      <text class="poseName">{{currentSequence.poses[currentPoseIndex].name}}</text>
+      <text class="poseInstructions">{{currentSequence.poses[currentPoseIndex].instructions}}</text>
+      <text class="timerText">{{timeRemaining}}s</text>
+    </view>
+
+    <view class="controlsContainer">
+      <view bindtap="togglePlayPause" class="controlButton">
+        <text class="controlButtonText">{{isPlaying ? '❚❚' : '▶'}}</text>
+      </view>
+      <view bindtap="handleNext" class="controlButton">
+        <text class="controlButtonText">▶▶</text>
+      </view>
+      <view bindtap="handleCameraPress" class="controlButton">
+        <text class="controlButtonText">[Cam]</text>
+      </view>
+    </view>
+  </block>
+
+  <!-- Camera Modal -->
+  <view wx:if="{{showCamera}}" class="modalOverlay">
+    <view class="cameraModalContainer">
+      <view class="cameraHeader">
+        <text class="cameraTitle">录制您的体式</text>
+        <view bindtap="closeCamera" class="closeButton">
+          <text class="closeButtonText">X</text>
+        </view>
+      </view>
+      <camera 
+        id="myCamera" 
+        device-position="front" 
+        flash="off" 
+        binderror="cameraError" 
+        class="cameraView"
+        style="width:100%; height: 300px;"
+      ></camera>
+      
+      <view wx:if="{{!recordedVideo}}">
+        <button wx:if="{{!isRecording}}" bindtap="startRecording" class="cameraActionButton">开始录制</button>
+        <button wx:else bindtap="stopRecording" class="cameraActionButton recording">停止录制</button>
+      </view>
+      
+      <view wx:if="{{recordedVideo && !isUploading}}" class="videoPreviewContainer">
+        <text class="previewText">视频已录制:</text>
+        <!-- Mini Program doesn't have a direct video player for temp files like this in WXML easily -->
+        <!-- Usually, you'd upload it then play the remote URL, or use a more complex setup -->
+        <text class="videoPathText">路径: {{recordedVideo}} (预览通常需要上传后)</text>
+        <view class="videoActions">
+          <button bindtap="uploadAndScore" class="cameraActionButton">上传评分</button>
+          <button bindtap="retakeVideo" class="cameraActionButton secondary">重新录制</button>
+        </view>
+      </view>
+      <view wx:if="{{isUploading}}" class="uploadingIndicator">
+        <text>上传中...</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Score Modal -->
+  <view wx:if="{{showScoreModal}}" class="modalOverlay">
+    <view class="scoreModalContainer">
+      <text class="scoreModalTitle">体式评分</text>
+      <view class="scoreDisplay">
+        <text class="scoreText">{{poseScore ? poseScore.score : 'N/A'}} / 100</text>
+        <text class="scoreFeedback">{{poseScore ? poseScore.feedback : ''}}</text>
+      </view>
+       <!-- Example: Star rating based on score -->
+      <view class="starRating">
+        <text wx:for="{{5}}" wx:key="*this" class="star {{index < (poseScore.score / 20) ? 'filled' : ''}}">*</text>
+      </view>
+      <button bindtap="closeScoreModal" class="cameraActionButton">关闭</button>
+    </view>
+  </view>
+</view>
