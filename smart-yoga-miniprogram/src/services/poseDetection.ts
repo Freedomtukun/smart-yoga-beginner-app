@@ -9,10 +9,6 @@
 export interface PoseScoreResponse {
   score: number; // A numerical score, e.g., 0-100, representing pose accuracy.
   feedback: string; // Textual feedback on the pose, e.g., suggestions for improvement.
-  // Optional: Add other relevant fields like error codes or detailed keypoint analysis.
-  // error_code?: number;
-  // error_message?: string;
-  // keypoints_feedback?: any; // Could be a more structured object
 }
 
 /**
@@ -26,7 +22,6 @@ export const detectPose = async (
   imagePath: string,
   poseId: string
 ): Promise<PoseScoreResponse> => {
-  console.log(`Mock: Preparing to detect pose for image: ${imagePath}, pose: ${poseId}`);
 
   // Simulate network delay for calling the cloud function.
   await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 1000)); // 1-2 seconds delay
@@ -53,25 +48,8 @@ export const detectPose = async (
     mockFeedback = "很好！尝试将注意力更多地放在呼吸上。"; // "Very good! Try to focus more on your breath."
   }
 
-  console.log(`Mock: Detection complete for pose: ${poseId}. Score: ${mockScore}`);
-
   return {
     score: mockScore,
     feedback: mockFeedback,
   };
 };
-
-// Example of how this might be called (not part of the file content itself, for illustration):
-/*
-async function handlePoseSubmission(imageFileUri: string, currentPoseId: string) {
-  try {
-    const result = await detectPose(imageFileUri, currentPoseId);
-    console.log('Pose Score:', result.score);
-    console.log('Feedback:', result.feedback);
-    // Update UI with the score and feedback
-  } catch (error) {
-    console.error('Error detecting pose:', error);
-    // Handle error in UI, e.g., show a message
-  }
-}
-*/

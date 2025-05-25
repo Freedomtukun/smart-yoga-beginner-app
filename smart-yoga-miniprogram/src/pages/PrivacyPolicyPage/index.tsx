@@ -1,4 +1,3 @@
-import Taro from '@tarojs/taro';
 import { View, Text } from '@tarojs/components';
 import './index.module.scss'; // Create an empty SCSS file if you want specific styles later
 import * as i18n from '../../config/i18n';

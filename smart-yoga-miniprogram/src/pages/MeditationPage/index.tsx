@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, Image } from '@tarojs/components';
 import Taro, { useLoad, useUnload } from '@tarojs/taro';
 import styles from './index.module.scss';
@@ -90,7 +90,7 @@ export default function MeditationPage() {
             className={styles.meditationImage}
             mode="aspectFill"
             onError={(_e) => {
-              Taro.showToast({ title: i18n.TOAST_IMAGE_LOAD_FAILED || '图片加载失败，请稍后重试', icon: 'none' });
+              Taro.showToast({ title: i18n.TOAST_IMAGE_LOAD_FAILED, icon: 'none' });
             }}
           />
         </View>

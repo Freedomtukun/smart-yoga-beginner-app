@@ -111,7 +111,6 @@ export default function SequencePage() {
       poseAudioContextRef.current = null;
     }
     // Optionally reset sequence if leaving mid-way, or preserve state
-    // resetSequence(); // Uncomment if sequence should always reset on leave
   });
 
   const handleBack = () => {
@@ -177,7 +176,7 @@ export default function SequencePage() {
             className={styles.poseImage}
             mode="aspectFit" // Or aspectFill, depending on desired crop
             onError={(_e) => {
-              Taro.showToast({ title: i18n.TOAST_IMAGE_LOAD_FAILED || '图片加载失败，请稍后重试', icon: 'none' });
+              Taro.showToast({ title: i18n.TOAST_IMAGE_LOAD_FAILED, icon: 'none' });
             }}
           />
         </View>

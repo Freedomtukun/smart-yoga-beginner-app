@@ -227,7 +227,6 @@ export const loadPoseSequence = async (level: string): Promise<Sequence> => {
 
 // Stubbed Pose Scoring Function
 export const scorePoseVideo = async (videoUri: string, poseId: string): Promise<PoseScoreResponse> => {
-  console.warn("Pose scoring feature is not implemented in this version. Video URI:", videoUri, "Pose ID:", poseId);
   return {
     score: 0,
     feedback: "评分功能暂未开放。", // "Scoring feature not yet available."
