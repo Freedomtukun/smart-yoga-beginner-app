@@ -1,10 +1,11 @@
-const yogaApi = require('../../utils/yoga-api.js');
+// const yogaApi = require('../../utils/yoga-api.js'); // Removed
+const cloudSequenceService = require('../../utils/cloud-sequence-service.js');
 const sequenceService = require('../../utils/sequence-service.js');
 
 Page({
   data: {
     level: '',
-    currentSequence: null,
+    currentSequence: null, // Will be populated by cloudSequenceService and processed by sequenceService
     currentPoseIndex: 0,
     isPlaying: false,
     timeRemaining: 0,
@@ -20,7 +21,7 @@ Page({
     isUploading: false,
 
     showScoreModal: false,
-    poseScore: null, // Will now store { code, score, feedback, suggestions, message }
+    poseScore: null, // Structure might change based on TODO in uploadAndScore
   },
 
   onLoad: function (options) {
@@ -33,10 +34,7 @@ Page({
     
     this.data.soundContext.onEnded(() => {
       console.log('Audio ended');
-      // If isPlaying was true, and timer reached 0, handleNext would have been called.
-      // If audio ends before timer (e.g. short audio), timer will continue.
-      // If user pauses, then audio is paused.
-      // This onEnded might be useful if we want specific action when only audio finishes.
+      // Logic for when audio naturally ends
     });
     this.data.soundContext.onError((res) => {
       console.error('Audio Error:', res.errMsg);
@@ -46,29 +44,35 @@ Page({
 
   async loadSequenceData(level) {
     this.setData({ loading: true, error: null });
+    wx.showLoading({ title: '加载中...' });
     try {
-      const sequenceData = await yogaApi.loadPoseSequence(level);
+      // Fetches sequence data with mapped URLs (e.g., pose.image_url, pose.audioGuide are full URLs)
+      const sequenceData = await cloudSequenceService.getProcessedSequence(level);
+      
       if (sequenceData && sequenceData.poses && sequenceData.poses.length > 0) {
-        // Use sequenceService to set the initial state based on the fetched data
-        const initialState = sequenceService.setSequence(sequenceData);
+        // sequenceService.setSequence initializes state based on the fetched sequence
+        const initialState = sequenceService.setSequence(sequenceData); 
         this.setData({
           ...initialState, // currentSequence, currentPoseIndex, isPlaying, timeRemaining
           loading: false,
         });
-        // Note: yoga-api.js mock data currently returns sequenceData.name as a string.
-        // JSDoc expects name: {en, zh}. If mock data is updated, this needs to be sequenceData.name.zh
-        wx.setNavigationBarTitle({ title: `${sequenceData.name} - ${initialState.currentPoseIndex + 1}/${initialState.currentSequence.poses.length}` });
+        wx.hideLoading();
+        // Assuming sequenceData.name is {en: "...", zh: "..."} as per JSDoc
+        // and cloudSequenceService returns data in this structure.
+        wx.setNavigationBarTitle({ title: `${initialState.currentSequence.name.zh} - ${initialState.currentPoseIndex + 1}/${initialState.currentSequence.poses.length}` });
       } else {
         console.error('No sequence data or empty poses array returned for level:', level);
-        throw new Error('No valid sequence data returned');
+        throw new Error('加载的序列数据无效'); // More user-friendly error
       }
     } catch (err) {
       console.error('Failed to load sequence:', err);
       this.setData({
         loading: false,
-        error: '无法加载序列数据，请稍后重试。',
-        currentSequence: null, // Clear sequence on error
+        error: err.message || '无法加载序列数据，请稍后重试。',
+        currentSequence: null,
       });
+      wx.hideLoading();
+      wx.showToast({ title: err.message || '加载失败', icon: 'none' });
       wx.setNavigationBarTitle({ title: '错误' });
     }
   },
@@ -78,7 +82,6 @@ Page({
 
     const timerId = setInterval(() => {
       if (this.data.timeRemaining > 0) {
-        // Direct setData for timer is fine, or use sequenceService.setTimeRemaining
         this.setData(sequenceService.setTimeRemaining(this.data.timeRemaining - 1));
       } else {
         clearInterval(this.data.timerId);
@@ -99,25 +102,21 @@ Page({
   },
 
   playAudioGuidance: function (audioUrl) {
-    // audioUrl in current mock data is a full URL.
-    // JSDoc for Pose in services suggests audioGuide is a filename.
-    // This will work with current mock data, but needs adjustment if mock data aligns with JSDoc.
+    // audioUrl should now be a fully qualified URL from cloudSequenceService (pose.audioGuide)
     if (audioUrl && this.data.soundContext) {
+      console.log("Playing audio from URL:", audioUrl);
       this.data.soundContext.stop(); 
-      this.data.soundContext.src = audioUrl;
-      this.data.soundContext.play();
+      this.data.soundContext.src = audioUrl; // This should be a full URL
+      this.data.soundContext.play()
+        .catch(error => console.error("Error playing audio:", error)); // Add catch for play promise
     } else {
-      console.warn("No audio URL for current pose or sound context not ready.");
+      console.warn("No audio URL for current pose or sound context not ready. Audio URL:", audioUrl);
     }
   },
 
   handleBack: function () {
     if (this.data.soundContext) this.data.soundContext.stop();
     this.stopTimer();
-    // Reset sequence state if navigating away from the page completely
-    // This depends on desired behavior. For now, just navigate back.
-    // const resetState = sequenceService.resetSequence();
-    // this.setData(resetState);
     wx.navigateBack();
   },
 
@@ -132,22 +131,18 @@ Page({
       this.setData({
         currentPoseIndex: nextState.currentPoseIndex_new,
         timeRemaining: nextState.timeRemaining_new,
-        // isPlaying state is preserved from current data.isPlaying, or set explicitly if needed
       });
-      // Note: currentSequence.name is a string in current mock data.
-      wx.setNavigationBarTitle({ title: `${currentSequence.name} - ${nextState.currentPoseIndex_new + 1}/${currentSequence.poses.length}` });
+      // currentSequence.name.zh should be available if loadSequenceData was successful
+      wx.setNavigationBarTitle({ title: `${currentSequence.name.zh} - ${nextState.currentPoseIndex_new + 1}/${currentSequence.poses.length}` });
       
       if (this.data.isPlaying) {
         const newCurrentPose = currentSequence.poses[nextState.currentPoseIndex_new];
-        this.playAudioGuidance(newCurrentPose.audio_url); // Assumes audio_url from mock data
+        this.playAudioGuidance(newCurrentPose.audioGuide); // Use audioGuide which is processed by cloud-service
         this.startTimer();
       }
     } else {
-      // Sequence finished
       wx.showToast({ title: '序列完成!', icon: 'success' });
       setTimeout(() => {
-        // Optionally reset state before redirecting
-        // this.setData(sequenceService.resetSequence());
         wx.redirectTo({ url: '/pages/index/index' });
       }, 1500);
     }
@@ -159,7 +154,7 @@ Page({
 
     if (isPlaying_new) {
       const currentPose = this.data.currentSequence.poses[this.data.currentPoseIndex];
-      this.playAudioGuidance(currentPose.audio_url); // Assumes audio_url from mock data
+      this.playAudioGuidance(currentPose.audioGuide); // Use audioGuide
       this.startTimer();
     } else {
       if (this.data.soundContext) this.data.soundContext.pause();
@@ -230,36 +225,39 @@ Page({
   },
 
   async uploadAndScore() {
+    // TODO: Integrate real pose-scoring cloud function call here.
+    // This function would likely involve:
+    // 1. Uploading this.data.recordedVideo to cloud storage (e.g., COS via a cloud function).
+    // 2. Calling another cloud function with the video's cloud path and this.data.currentSequence.poses[this.data.currentPoseIndex].id.
+    // 3. Receiving score, feedback, suggestions from that cloud function.
+    // 4. Updating this.setData({ poseScore: resultFromServer, ... })
+
     if (!this.data.recordedVideo) {
       wx.showToast({ title: '没有录制的视频', icon: 'none' });
       return;
     }
     this.setData({ isUploading: true });
     
-    try {
-      const currentPoseId = this.data.currentSequence.poses[this.data.currentPoseIndex].id;
-      const scoreData = await yogaApi.scorePoseVideo(currentPoseId, this.data.recordedVideo);
-      // scoreData should be: { code, score, feedback, suggestions, message }
-      if (scoreData && scoreData.code === 0) {
-        this.setData({
-          poseScore: scoreData, // Contains score, feedback, suggestions
-          isUploading: false,
-          showScoreModal: true,
-          showCamera: false, 
-          recordedVideo: null,
-        });
-      } else {
-        throw new Error(scoreData.message || '评分服务返回错误');
-      }
-    } catch (err) {
-      console.error('Upload and score failed:', err);
+    // Mocking the scoring process for now
+    console.log("Simulating upload and score for video:", this.data.recordedVideo);
+    console.log("Current Pose ID for scoring:", this.data.currentSequence.poses[this.data.currentPoseIndex].id);
+
+    setTimeout(() => {
+      const mockScoreResult = {
+        // Conforming to PoseScoreResponse structure from JSDoc in yoga-api.js (now cloud-sequence-service.js)
+        code: 0, 
+        score: Math.floor(Math.random() * 30) + 70, // Random score between 70-99
+        feedback: "模拟评分：体式完成度良好，请注意保持平衡。",
+        suggestions: ["模拟建议：下次尝试更深度的伸展。", "模拟建议：保持呼吸平稳。"]
+      };
       this.setData({
+        poseScore: mockScoreResult,
         isUploading: false,
-        poseScore: { score: 'N/A', feedback: `评分失败: ${err.message}`, suggestions: [] },
-        showScoreModal: true, // Show modal even on error to inform user
-        // showCamera: false, // Optionally keep camera open or close
+        showScoreModal: true,
+        showCamera: false, 
+        recordedVideo: null,
       });
-    }
+    }, 2000); // Simulate upload and scoring delay
   },
   
   retakeVideo: function() {
@@ -282,7 +280,6 @@ Page({
   // --- Score Modal Methods ---
   closeScoreModal: function () {
     this.setData({ showScoreModal: false, poseScore: null });
-    // Decide if camera should re-open or stay closed
   },
 
   onUnload: function () {
@@ -290,7 +287,5 @@ Page({
       this.data.soundContext.destroy();
     }
     this.stopTimer(); 
-    // Consider resetting all sequence state if page is unloaded
-    // this.setData(sequenceService.resetSequence());
   },
 });

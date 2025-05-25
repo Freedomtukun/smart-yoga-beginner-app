@@ -41,7 +41,8 @@
   "srcMiniprogramRoot": "./",
   "appidProtected": false,
   "scripts": {},
-  "cloudfunctionRoot": "",
+  "cloudfunctionRoot": "cloudfunctions/",
+  "envName": "smartyoga-3gh3muyt510ddd2d",
   "lazyloadPlaceholderEnable": false,
   "preloadBackgroundData": false,
   "editorSetting": {
