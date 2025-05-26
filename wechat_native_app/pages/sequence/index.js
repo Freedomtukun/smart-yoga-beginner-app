@@ -13,17 +13,19 @@ Page({
     timeRemaining: 0,
     loading: true,
     error: null,
-    soundContext: null,
+    // soundContext: null, // Removed as per refactoring
     timerId: null,
 
     showCamera: false,
     isRecording: false,
     recordedVideo: null,
     cameraContext: null,
+    cameraPosition: 'back', // Added cameraPosition
     isUploading: false,
 
     showScoreModal: false,
     poseScore: null, // Structure might change based on TODO in uploadAndScore
+    skeletonUrl: null, // Added skeletonUrl
   },
 
   onLoad: function (options) {
@@ -31,17 +33,7 @@ Page({
     this.setData({ level: level });
     this.loadSequenceData(level);
 
-    const soundCtx = wx.createInnerAudioContext({ useWebAudioImplement: false });
-    this.setData({ soundContext: soundCtx });
-    
-    this.data.soundContext.onEnded(() => {
-      console.log('Audio ended');
-      // Logic for when audio naturally ends
-    });
-    this.data.soundContext.onError((res) => {
-      console.warn('Audio Error for URL:', this.data.soundContext.src, 'Error:', res.errMsg);
-      wx.showToast({ title: '音频播放失败', icon: 'none' });
-    });
+    // Removed soundContext initialization and global handlers
   },
 
   async loadSequenceData(level) {
@@ -122,28 +114,46 @@ Page({
     }
   },
 
-  playAudioGuidance: function (audioUrl) {
-    // audioUrl should now be a fully qualified URL from cloudSequenceService (pose.audioGuide)
-    if (audioUrl && this.data.soundContext) {
-      console.log("Playing audio from URL:", audioUrl);
-      this.data.soundContext.stop(); 
-      this.data.soundContext.src = audioUrl; // This should be a full URL
-      this.data.soundContext.play()
-        .catch(error => console.error("Error playing audio:", error)); // Add catch for play promise
-    } else {
-      console.warn("No audio URL for current pose or sound context not ready. Audio URL:", audioUrl);
-    }
+  playAudioGuidance: function (src) {
+    return new Promise((resolve, reject) => {
+      if (!src) {
+        console.warn("No audio src provided to playAudioGuidance.");
+        reject(new Error("No audio src provided."));
+        return;
+      }
+
+      const audioCtx = wx.createInnerAudioContext({ useWebAudioImplement: false });
+      audioCtx.src = src;
+
+      audioCtx.onEnded(() => {
+        console.log('Audio ended for src:', src);
+        audioCtx.destroy();
+        resolve();
+      });
+
+      audioCtx.onError((error) => {
+        console.error('Audio Error for src:', src, 'Error:', error.errMsg);
+        wx.showToast({ title: '音频播放失败', icon: 'none' }); // Keep toast for direct error
+        audioCtx.destroy();
+        reject(error);
+      });
+      
+      // For wx.createInnerAudioContext, play() does not return a Promise.
+      // Errors during play initiation are typically handled by the onError callback.
+      audioCtx.play();
+      console.log("Attempting to play audio from URL:", src);
+    });
   },
 
   handleBack: function () {
-    if (this.data.soundContext) this.data.soundContext.stop();
+    // Removed soundContext.stop()
     this.stopTimer();
     wx.navigateBack();
   },
 
   handleNext: function () {
     this.stopTimer();
-    if (this.data.soundContext) this.data.soundContext.stop();
+    // Removed soundContext.stop()
 
     const { currentSequence, currentPoseIndex } = this.data;
     const nextState = sequenceService.nextPose(currentSequence, currentPoseIndex);
@@ -158,7 +168,15 @@ Page({
       
       if (this.data.isPlaying) {
         const newCurrentPose = currentSequence.poses[nextState.currentPoseIndex_new];
-        this.playAudioGuidance(newCurrentPose.audioGuide); // Use audioGuide which is processed by cloud-service
+        this.playAudioGuidance(newCurrentPose.audioGuide)
+          .then(() => {
+            console.log('Audio finished playing in handleNext');
+            // Optional: Any logic to run after audio successfully finishes in this context
+          })
+          .catch(error => {
+            console.error("Audio playback error in handleNext:", error);
+            wx.showToast({ title: '音频播放失败', icon: 'none' });
+          });
         this.startTimer();
       }
     } else {
@@ -175,10 +193,18 @@ Page({
 
     if (isPlaying_new) {
       const currentPose = this.data.currentSequence.poses[this.data.currentPoseIndex];
-      this.playAudioGuidance(currentPose.audioGuide); // Use audioGuide
+      this.playAudioGuidance(currentPose.audioGuide)
+        .then(() => {
+          console.log('Audio finished playing in togglePlayPause');
+          // Optional: Any logic to run after audio successfully finishes in this context
+        })
+        .catch(error => {
+          console.error("Audio playback error in togglePlayPause:", error);
+            wx.showToast({ title: '音频播放失败', icon: 'none' });
+        });
       this.startTimer();
     } else {
-      if (this.data.soundContext) this.data.soundContext.pause();
+      // Removed soundContext.pause()
       this.stopTimer();
     }
   },
@@ -210,7 +236,7 @@ Page({
     if (!this.data.cameraContext) {
         this.setData({ cameraContext: wx.createCameraContext('myCamera') });
     }
-    this.setData({ showCamera: true, recordedVideo: null, isRecording: false, poseScore: null });
+    this.setData({ showCamera: true, recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); // Reset skeletonUrl
   },
 
   startRecording: function () {
@@ -269,10 +295,12 @@ Page({
         code: 0, 
         score: Math.floor(Math.random() * 30) + 70, // Random score between 70-99
         feedback: "模拟评分：体式完成度良好，请注意保持平衡。",
-        suggestions: ["模拟建议：下次尝试更深度的伸展。", "模拟建议：保持呼吸平稳。"]
+        suggestions: ["模拟建议：下次尝试更深度的伸展。", "模拟建议：保持呼吸平稳。"],
+        skeleton_url: 'https://via.placeholder.com/300x400.png?text=Skeleton+Overlay' // Added mock skeleton_url
       };
       this.setData({
         poseScore: mockScoreResult,
+        skeletonUrl: mockScoreResult.skeleton_url, // Set skeletonUrl from mock response
         isUploading: false,
         showScoreModal: true,
         showCamera: false, 
@@ -282,20 +310,25 @@ Page({
   },
   
   retakeVideo: function() {
-    this.setData({ recordedVideo: null, isRecording: false, poseScore: null });
+    this.setData({ recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); // Reset skeletonUrl
   },
 
   closeCamera: function () {
     if (this.data.isRecording) {
         this.stopRecording(); 
     }
-    this.setData({ showCamera: false, recordedVideo: null, isRecording: false, poseScore: null });
+    this.setData({ showCamera: false, recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); // Reset skeletonUrl
   },
 
   cameraError: function(e) {
     console.error('Camera error:', e.detail);
     wx.showToast({ title: '相机错误: ' + (e.detail.errMsg || '未知错误'), icon: 'none' });
     this.setData({ showCamera: false });
+  },
+
+  toggleCamera: function() {
+    const newPosition = this.data.cameraPosition === 'front' ? 'back' : 'front';
+    this.setData({ cameraPosition: newPosition });
   },
 
   // --- Score Modal Methods ---
@@ -315,10 +348,12 @@ Page({
     }
   },
 
+  onHide: function () {
+    this.stopTimer();
+  },
+
   onUnload: function () {
-    if (this.data.soundContext) {
-      this.data.soundContext.destroy();
-    }
+    // Removed soundContext.destroy()
     this.stopTimer(); 
   },
 });

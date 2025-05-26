@@ -29,9 +29,11 @@
         binderror="onImageError"
       />
       <text class="poseName">{{currentSequence.poses[currentPoseIndex].displayName || currentSequence.poses[currentPoseIndex].name.zh}}</text>
-      <text class="poseInstructions">{{currentSequence.poses[currentPoseIndex].instructions}}</text>
+      <text class="poseInstructions">{{currentSequence.poses[currentPoseIndex].instructions.zh}}</text>
       <text class="timerText">{{timeRemaining}}s</text>
     </view>
+    <!-- Skeleton Image Display Area -->
+    <image wx:if="{{skeletonUrl}}" class="skeletonImg" src="{{skeletonUrl}}" mode="widthFix" style="width: 80%; margin: 10px auto; display: block;"/>
 
     <view class="controlsContainer">
       <view bindtap="togglePlayPause" class="controlButton">
@@ -51,13 +53,14 @@
     <view class="cameraModalContainer">
       <view class="cameraHeader">
         <text class="cameraTitle">录制您的体式</text>
+        <button bindtap="toggleCamera" class="cameraToggleButton">⇆</button>
         <view bindtap="closeCamera" class="closeButton">
           <text class="closeButtonText">X</text>
         </view>
       </view>
       <camera 
         id="myCamera" 
-        device-position="front" 
+        device-position="{{cameraPosition}}" 
         flash="off" 
         binderror="cameraError" 
         class="cameraView"
