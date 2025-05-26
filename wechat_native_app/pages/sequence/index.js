@@ -97,8 +97,16 @@ Page({
       if (this.data.timeRemaining > 0) {
         // Ensure this.data.timeRemaining is accessed before it's potentially changed by setData
         const newTimeRemaining = this.data.timeRemaining - 1;
-        console.log('Timer tick:', newTimeRemaining);
-        this.setData(sequenceService.setTimeRemaining(newTimeRemaining));
+        console.log('Timer tick:', newTimeRemaining); // Debug line, ensure it's present
+        this.setData({ timeRemaining: newTimeRemaining });
+        // Note: This change assumes sequenceService.setTimeRemaining(val) simply returns { timeRemaining: val }
+        // or that direct update is preferred. If sequenceService.setTimeRemaining had other side effects
+        // or returned a more complex state object, the original call:
+        // this.setData(sequenceService.setTimeRemaining(newTimeRemaining));
+        // would be more appropriate to preserve that full functionality.
+        // Given that sequenceService.setTimeRemaining typically is just a formatter like:
+        // setTimeRemaining: newTime => ({ timeRemaining: newTime }),
+        // this direct setData call is functionally equivalent and more explicit for timeRemaining.
       } else {
         console.log('Timer ended, clearing interval.'); // Added log for clarity
         clearInterval(this.data.timerId);
@@ -300,11 +308,21 @@ Page({
         score: Math.floor(Math.random() * 30) + 70, // Random score between 70-99
         feedback: "模拟评分：体式完成度良好，请注意保持平衡。",
         suggestions: ["模拟建议：下次尝试更深度的伸展。", "模拟建议：保持呼吸平稳。"],
-        skeleton_url: '/assets/images/default_skeleton.png' // Updated to local asset path
+        skeleton_url: 'https://yogasmart-static-1351554677.cos.ap-shanghai.myqcloud.com/skeleton/mock_user_pose_overlay.png' // Updated to dynamic COS URL
       };
+
+      // Fallback logic for skeletonUrl
+      // Assuming the mock response structure is { result: { skeleton_url: '...' } }
+      // For the current mock, mockScoreResult directly contains skeleton_url
+      let finalSkeletonUrl = mockScoreResult.skeleton_url ? mockScoreResult.skeleton_url : '/assets/images/adaptive-icon.png'; 
+      // If the backend response structure is actually res.result.skeleton_url, it would be:
+      // let resFromServer = { result: mockScoreResult }; // Simulate nesting if needed
+      // let finalSkeletonUrl = (resFromServer.result && resFromServer.result.skeleton_url) ? resFromServer.result.skeleton_url : '/assets/images/adaptive-icon.png';
+      // For now, sticking to direct access on mockScoreResult as per current mock structure.
+
       this.setData({
         poseScore: mockScoreResult,
-        skeletonUrl: mockScoreResult.skeleton_url, // Set skeletonUrl from mock response
+        skeletonUrl: finalSkeletonUrl, // Use finalSkeletonUrl with fallback
         isUploading: false,
         showScoreModal: true,
         showCamera: false, 
