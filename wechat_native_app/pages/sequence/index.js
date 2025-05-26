@@ -95,8 +95,12 @@ Page({
 
     const timerId = setInterval(() => {
       if (this.data.timeRemaining > 0) {
-        this.setData(sequenceService.setTimeRemaining(this.data.timeRemaining - 1));
+        // Ensure this.data.timeRemaining is accessed before it's potentially changed by setData
+        const newTimeRemaining = this.data.timeRemaining - 1;
+        console.log('Timer tick:', newTimeRemaining);
+        this.setData(sequenceService.setTimeRemaining(newTimeRemaining));
       } else {
+        console.log('Timer ended, clearing interval.'); // Added log for clarity
         clearInterval(this.data.timerId);
         this.setData({ timerId: null });
         if (this.data.isPlaying) { 
@@ -296,7 +300,7 @@ Page({
         score: Math.floor(Math.random() * 30) + 70, // Random score between 70-99
         feedback: "模拟评分：体式完成度良好，请注意保持平衡。",
         suggestions: ["模拟建议：下次尝试更深度的伸展。", "模拟建议：保持呼吸平稳。"],
-        skeleton_url: 'https://via.placeholder.com/300x400.png?text=Skeleton+Overlay' // Added mock skeleton_url
+        skeleton_url: '/assets/images/default_skeleton.png' // Updated to local asset path
       };
       this.setData({
         poseScore: mockScoreResult,

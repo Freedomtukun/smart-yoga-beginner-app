@@ -23,8 +23,8 @@
 
     <view class="poseContainer">
       <image 
+        class="poseImg" 
         src="{{currentSequence.poses[currentPoseIndex].image_url}}" 
-        class="poseImage" 
         mode="aspectFit"
         binderror="onImageError"
       />
@@ -33,7 +33,7 @@
       <text class="timerText">{{timeRemaining}}s</text>
     </view>
     <!-- Skeleton Image Display Area -->
-    <image wx:if="{{skeletonUrl}}" class="skeletonImg" src="{{skeletonUrl}}" mode="widthFix" style="width: 80%; margin: 10px auto; display: block;"/>
+    <image wx:if="{{skeletonUrl}}" class="skeletonImg" src="{{skeletonUrl}}" mode="widthFix"/>
 
     <view class="controlsContainer">
       <view bindtap="togglePlayPause" class="controlButton">
@@ -42,9 +42,9 @@
       <view bindtap="handleNext" class="controlButton">
         <text class="controlButtonText">▶▶</text>
       </view>
-      <view bindtap="handleCameraPress" class="controlButton">
-        <text class="controlButtonText">[Cam]</text>
-      </view>
+      <button class="camBtn" bindtap="handleCameraPress">
+        <image src="/assets/images/cam.png" class="camIcon"/>
+      </button>
     </view>
   </block>
 

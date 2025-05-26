@@ -67,12 +67,12 @@
   justify-content: center; /* Center content vertically */
   padding: 20px;
 }
-.poseImage {
-  width: 80%; /* Responsive width */
-  height: 250px; /* Fixed height, adjust as needed */
-  margin-bottom: 20px;
-  border-radius: 12px;
-  background-color: #E2E8F0; /* Placeholder bg */
+.poseImg, .skeletonImg {
+  width: 100%;
+  max-width: 360px; /* Added max-width for better control on larger screens */
+  height: auto;     /* Ensures aspect ratio is maintained with width adjustments */
+  display: block;   /* Allows margin auto to work for centering */
+  margin: 0 auto 16px auto; /* Centers the block and adds bottom margin */
 }
 .poseName {
   font-size: 24px;
@@ -123,6 +123,20 @@
 }
 .controlButton:nth-child(1) .controlButtonText {
   color: #FFF;
+}
+
+.camBtn {
+  background: none;
+  border: none;
+  padding: 10px 15px; /* Keep similar padding to other control buttons for touch area */
+  margin: 0 15px;   /* Keep similar margin */
+  line-height: 1;   /* Helps if there's any residual text height */
+}
+
+.camIcon {
+  width: 32px;
+  height: 32px;
+  display: block; 
 }
 
 
