@@ -1,32 +1,56 @@
-// const yogaApi = require('../../utils/yoga-api.js'); // Removed
+import { scorePose } from '../../utils/yoga-api.js';
 const cloudSequenceService = require('../../utils/cloud-sequence-service.js');
-const sequenceService = require('../../utils/sequence-service.js');
-
+const sequenceService      = require('../../utils/sequence-service.js');
 const getText = v => (typeof v === 'object' ? (v.zh || v.en || '') : v);
 
 Page({
-  data: {
-    level: '',
-    currentSequence: null, // Will be populated by cloudSequenceService and processed by sequenceService
-    currentPoseIndex: 0,
-    isPlaying: false,
-    timeRemaining: 0,
-    loading: true,
-    error: null,
-    // soundContext: null, // Removed as per refactoring
+  data:{
+    level:'', currentSequence:null,currentPoseIndex:0,isPlaying:false,
+    timeRemaining:0,loading:true,error:null,
+    skeletonUrl:null,              // 主界面骨架图
+    scoreSkeletonImageUrl:null,    // 评分弹窗骨架图
+    showScoreModal:false,isUploading:false,
+    poseScore:null,
+    // Merged from original data:
     timerId: null,
-
     showCamera: false,
     isRecording: false,
     recordedVideo: null,
     cameraContext: null,
-    cameraPosition: 'back', // Added cameraPosition
-    isUploading: false,
+    cameraPosition: 'back',
+  },
 
-    showScoreModal: false,
-    poseScore: null, // Structure might change based on TODO in uploadAndScore
-    skeletonUrl: null, // Added skeletonUrl
-    scoreSkeletonImageUrl: null, // Added for score modal skeleton image
+  async uploadAndScore(){
+    if(!this.data.recordedVideo){wx.showToast({title:'没有录制的视频',icon:'none'});return;}
+    this.setData({isUploading:true});
+    try{
+      const res = await scorePose(this.data.recordedVideo,
+                 this.data.currentSequence.poses[this.data.currentPoseIndex].id);
+      const result = res.data?.result ?? res.data;
+      const {score,feedback,suggestions,skeleton_url,skeleton_image_url}=result;
+      this.setData({
+        poseScore:{score,feedback,suggestions},
+        skeletonUrl:             skeleton_url        || null,
+        scoreSkeletonImageUrl:   skeleton_image_url  || null,
+        showScoreModal:true,
+        isUploading:false
+      });
+    }catch(e){
+      console.error('评分接口失败',e);
+      let errMsg = '评分失败';
+      // Try to get a more specific error message
+      if (e && e.data && e.data.message) errMsg = e.data.message;
+      else if (e && e.message) errMsg = e.message; 
+      else if (e && e.errMsg) errMsg = e.errMsg; 
+      wx.showToast({title: errMsg, icon:'none'});
+      this.setData({isUploading:false}); 
+    }
+  },
+
+  onScoreSkeletonImageError(e){
+    console.error('骨架图加载失败:',this.data.scoreSkeletonImageUrl,e.detail.errMsg);
+    this.setData({scoreSkeletonImageUrl:null});
+    wx.showToast({title:'骨架图加载失败',icon:'none'});
   },
 
   onLoad: function (options) {
@@ -68,18 +92,9 @@ Page({
         userErrorMessage = '序列配置获取失败，请检查网络或稍后重试。';
         toastMessage = '序列配置获取失败';
       } else if (err && err.message) { // Covers '加载的序列数据无效' and other specific messages from cloud service
-        // Keep existing behavior for other specific errors if err.message is somewhat user-friendly
-        // or create a more generic one.
-        // For this case, let's make it generic if not MISSING_SIGNED_URL
-        userErrorMessage = '加载序列时发生错误，请稍后重试。'; // As per current prompt's example
-        toastMessage = '加载错误'; // As per current prompt's example
-        // If we want to retain the specific error message from the throw:
-        // userErrorMessage = err.message; 
-        // toastMessage = err.message.length > 20 ? '加载错误' : err.message; // Keep toast short
+        userErrorMessage = '加载序列时发生错误，请稍后重试。'; 
+        toastMessage = '加载错误'; 
       }
-      // For other generic errors where err.message might be empty/undefined, 
-      // the default userErrorMessage and toastMessage will be used.
-
       this.setData({
         loading: false,
         error: userErrorMessage,
@@ -87,7 +102,7 @@ Page({
       });
       wx.hideLoading();
       wx.showToast({ title: toastMessage, icon: 'none' });
-      wx.setNavigationBarTitle({ title: '加载错误' }); // More generic title on error
+      wx.setNavigationBarTitle({ title: '加载错误' }); 
     }
   },
 
@@ -96,20 +111,11 @@ Page({
 
     const timerId = setInterval(() => {
       if (this.data.timeRemaining > 0) {
-        // Ensure this.data.timeRemaining is accessed before it's potentially changed by setData
         const newTimeRemaining = this.data.timeRemaining - 1;
-        console.log('Timer tick:', newTimeRemaining); // Debug line, ensure it's present
+        console.log('Timer tick:', newTimeRemaining); 
         this.setData({ timeRemaining: newTimeRemaining });
-        // Note: This change assumes sequenceService.setTimeRemaining(val) simply returns { timeRemaining: val }
-        // or that direct update is preferred. If sequenceService.setTimeRemaining had other side effects
-        // or returned a more complex state object, the original call:
-        // this.setData(sequenceService.setTimeRemaining(newTimeRemaining));
-        // would be more appropriate to preserve that full functionality.
-        // Given that sequenceService.setTimeRemaining typically is just a formatter like:
-        // setTimeRemaining: newTime => ({ timeRemaining: newTime }),
-        // this direct setData call is functionally equivalent and more explicit for timeRemaining.
       } else {
-        console.log('Timer ended, clearing interval.'); // Added log for clarity
+        console.log('Timer ended, clearing interval.'); 
         clearInterval(this.data.timerId);
         this.setData({ timerId: null });
         if (this.data.isPlaying) { 
@@ -146,28 +152,23 @@ Page({
 
       audioCtx.onError((error) => {
         console.error('Audio Error for src:', src, 'Error:', error.errMsg);
-        wx.showToast({ title: '音频播放失败', icon: 'none' }); // Keep toast for direct error
+        wx.showToast({ title: '音频播放失败', icon: 'none' }); 
         audioCtx.destroy();
         reject(error);
       });
       
-      // For wx.createInnerAudioContext, play() does not return a Promise.
-      // Errors during play initiation are typically handled by the onError callback.
       audioCtx.play();
       console.log("Attempting to play audio from URL:", src);
     });
   },
 
   handleBack: function () {
-    // Removed soundContext.stop()
     this.stopTimer();
     wx.navigateBack();
   },
 
   handleNext: function () {
     this.stopTimer();
-    // Removed soundContext.stop()
-
     const { currentSequence, currentPoseIndex } = this.data;
     const nextState = sequenceService.nextPose(currentSequence, currentPoseIndex);
 
@@ -176,7 +177,6 @@ Page({
         currentPoseIndex: nextState.currentPoseIndex_new,
         timeRemaining: nextState.timeRemaining_new,
       });
-      // currentSequence.name.zh should be available if loadSequenceData was successful
       wx.setNavigationBarTitle({ title: `${getText(currentSequence.name)} - ${nextState.currentPoseIndex_new + 1}/${currentSequence.poses.length}` });
       
       if (this.data.isPlaying) {
@@ -184,7 +184,6 @@ Page({
         this.playAudioGuidance(newCurrentPose.audioGuide)
           .then(() => {
             console.log('Audio finished playing in handleNext');
-            // Optional: Any logic to run after audio successfully finishes in this context
           })
           .catch(error => {
             console.error("Audio playback error in handleNext:", error);
@@ -209,7 +208,6 @@ Page({
       this.playAudioGuidance(currentPose.audioGuide)
         .then(() => {
           console.log('Audio finished playing in togglePlayPause');
-          // Optional: Any logic to run after audio successfully finishes in this context
         })
         .catch(error => {
           console.error("Audio playback error in togglePlayPause:", error);
@@ -217,12 +215,10 @@ Page({
         });
       this.startTimer();
     } else {
-      // Removed soundContext.pause()
       this.stopTimer();
     }
   },
 
-  // --- Camera Methods ---
   handleCameraPress: function () {
     wx.getSetting({
       success: (res) => {
@@ -249,7 +245,7 @@ Page({
     if (!this.data.cameraContext) {
         this.setData({ cameraContext: wx.createCameraContext('myCamera') });
     }
-    this.setData({ showCamera: true, recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); // Reset skeletonUrl
+    this.setData({ showCamera: true, recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); 
   },
 
   startRecording: function () {
@@ -283,68 +279,16 @@ Page({
       }
     });
   },
-
-  async uploadAndScore() {
-    // TODO: Integrate real pose-scoring cloud function call here.
-    // This function would likely involve:
-    // 1. Uploading this.data.recordedVideo to cloud storage (e.g., COS via a cloud function).
-    // 2. Calling another cloud function with the video's cloud path and this.data.currentSequence.poses[this.data.currentPoseIndex].id.
-    // 3. Receiving score, feedback, suggestions from that cloud function.
-    // 4. Updating this.setData({ poseScore: resultFromServer, ... })
-
-    if (!this.data.recordedVideo) {
-      wx.showToast({ title: '没有录制的视频', icon: 'none' });
-      return;
-    }
-    this.setData({ isUploading: true });
-    
-    // Mocking the scoring process for now
-    console.log("Simulating upload and score for video:", this.data.recordedVideo);
-    console.log("Current Pose ID for scoring:", this.data.currentSequence.poses[this.data.currentPoseIndex].id);
-
-    setTimeout(() => {
-      const mockScoreResult = {
-        // Conforming to PoseScoreResponse structure from JSDoc in yoga-api.js (now cloud-sequence-service.js)
-        code: 0, 
-        score: Math.floor(Math.random() * 30) + 70, // Random score between 70-99
-        feedback: "模拟评分：体式完成度良好，请注意保持平衡。",
-        suggestions: ["模拟建议：下次尝试更深度的伸展。", "模拟建议：保持呼吸平稳。"],
-        skeleton_url: 'https://yogasmart-static-1351554677.cos.ap-shanghai.myqcloud.com/skeleton/mock_user_pose_overlay.png', // For main page
-        skeleton_image_url: 'https://yogasmart-static-1351554677.cos.ap-shanghai.myqcloud.com/skeleton/mock_user_pose_overlay.png' // For score modal
-      };
-
-      // Fallback logic for main page skeletonUrl
-      // Assuming the mock response structure is { result: { skeleton_url: '...' } }
-      // For the current mock, mockScoreResult directly contains skeleton_url
-      let finalSkeletonUrl = mockScoreResult.skeleton_url ? mockScoreResult.skeleton_url : '/assets/images/adaptive-icon.png'; 
-      // If the backend response structure is actually res.result.skeleton_url, it would be:
-      // let resFromServer = { result: mockScoreResult }; // Simulate nesting if needed
-      // let finalSkeletonUrl = (resFromServer.result && resFromServer.result.skeleton_url) ? resFromServer.result.skeleton_url : '/assets/images/adaptive-icon.png';
-      // For now, sticking to direct access on mockScoreResult as per current mock structure.
-      
-      let urlFromApiForModal = mockScoreResult.skeleton_image_url;
-
-      this.setData({
-        poseScore: mockScoreResult,
-        skeletonUrl: finalSkeletonUrl, // Use finalSkeletonUrl with fallback (for main page)
-        scoreSkeletonImageUrl: urlFromApiForModal || null, // For score modal
-        isUploading: false,
-        showScoreModal: true,
-        showCamera: false, 
-        recordedVideo: null,
-      });
-    }, 2000); // Simulate upload and scoring delay
-  },
   
   retakeVideo: function() {
-    this.setData({ recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); // Reset skeletonUrl
+    this.setData({ recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); 
   },
 
   closeCamera: function () {
     if (this.data.isRecording) {
         this.stopRecording(); 
     }
-    this.setData({ showCamera: false, recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); // Reset skeletonUrl
+    this.setData({ showCamera: false, recordedVideo: null, isRecording: false, poseScore: null, skeletonUrl: null }); 
   },
 
   cameraError: function(e) {
@@ -358,9 +302,8 @@ Page({
     this.setData({ cameraPosition: newPosition });
   },
 
-  // --- Score Modal Methods ---
   closeScoreModal: function () {
-    this.setData({ showScoreModal: false, poseScore: null, scoreSkeletonImageUrl: null }); // Reset scoreSkeletonImageUrl
+    this.setData({ showScoreModal: false, poseScore: null, scoreSkeletonImageUrl: null }); 
   },
 
   onImageError: function(e) {
@@ -370,15 +313,8 @@ Page({
     if (currentImageUrl) {
       console.warn('Image load error for URL:', currentImageUrl, 'Error details:', e.detail.errMsg);
     } else {
-      // Fallback if current pose data or image_url is somehow not available when error fires
       console.warn('Image load error, current pose image_url unavailable. Event src:', e.target.id || e.target.src, 'Error details:', e.detail.errMsg);
     }
-  },
-
-  onScoreSkeletonImageError: function(e) {
-    console.error('Error loading skeleton image in score modal. URL attempted:', this.data.scoreSkeletonImageUrl, 'Error message:', e.detail.errMsg);
-    // Set to null to trigger the fallback text in WXML
-    this.setData({ scoreSkeletonImageUrl: null }); 
   },
 
   onHide: function () {
@@ -386,7 +322,6 @@ Page({
   },
 
   onUnload: function () {
-    // Removed soundContext.destroy()
     this.stopTimer(); 
   },
 });
