@@ -96,6 +96,18 @@
         <text class="scoreText">{{poseScore ? poseScore.score : 'N/A'}} / 100</text>
         <text class="scoreFeedback">{{poseScore ? poseScore.feedback : ''}}</text>
       </view>
+      <!-- Skeleton Image for Score Modal -->
+      <image 
+        wx:if="{{scoreSkeletonImageUrl}}" 
+        src="{{scoreSkeletonImageUrl}}" 
+        style="width:90%; margin:12px auto; display:block;" 
+        mode="widthFix"
+        binderror="onScoreSkeletonImageError"
+        class="scoreSkeletonImage" 
+      />
+      <text wx:if="{{!scoreSkeletonImageUrl && showScoreModal}}" class="noSkeletonImageText">
+        No skeleton image available.
+      </text>
        <!-- Example: Star rating based on score -->
       <view class="starRating">
         <text wx:for="{{5}}" wx:key="*this" class="star {{index < (poseScore.score / 20) ? 'filled' : ''}}">*</text>

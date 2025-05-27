@@ -26,6 +26,7 @@ Page({
     showScoreModal: false,
     poseScore: null, // Structure might change based on TODO in uploadAndScore
     skeletonUrl: null, // Added skeletonUrl
+    scoreSkeletonImageUrl: null, // Added for score modal skeleton image
   },
 
   onLoad: function (options) {
@@ -308,10 +309,11 @@ Page({
         score: Math.floor(Math.random() * 30) + 70, // Random score between 70-99
         feedback: "模拟评分：体式完成度良好，请注意保持平衡。",
         suggestions: ["模拟建议：下次尝试更深度的伸展。", "模拟建议：保持呼吸平稳。"],
-        skeleton_url: 'https://yogasmart-static-1351554677.cos.ap-shanghai.myqcloud.com/skeleton/mock_user_pose_overlay.png' // Updated to dynamic COS URL
+        skeleton_url: 'https://yogasmart-static-1351554677.cos.ap-shanghai.myqcloud.com/skeleton/mock_user_pose_overlay.png', // For main page
+        skeleton_image_url: 'https://yogasmart-static-1351554677.cos.ap-shanghai.myqcloud.com/skeleton/mock_user_pose_overlay.png' // For score modal
       };
 
-      // Fallback logic for skeletonUrl
+      // Fallback logic for main page skeletonUrl
       // Assuming the mock response structure is { result: { skeleton_url: '...' } }
       // For the current mock, mockScoreResult directly contains skeleton_url
       let finalSkeletonUrl = mockScoreResult.skeleton_url ? mockScoreResult.skeleton_url : '/assets/images/adaptive-icon.png'; 
@@ -319,10 +321,13 @@ Page({
       // let resFromServer = { result: mockScoreResult }; // Simulate nesting if needed
       // let finalSkeletonUrl = (resFromServer.result && resFromServer.result.skeleton_url) ? resFromServer.result.skeleton_url : '/assets/images/adaptive-icon.png';
       // For now, sticking to direct access on mockScoreResult as per current mock structure.
+      
+      let urlFromApiForModal = mockScoreResult.skeleton_image_url;
 
       this.setData({
         poseScore: mockScoreResult,
-        skeletonUrl: finalSkeletonUrl, // Use finalSkeletonUrl with fallback
+        skeletonUrl: finalSkeletonUrl, // Use finalSkeletonUrl with fallback (for main page)
+        scoreSkeletonImageUrl: urlFromApiForModal || null, // For score modal
         isUploading: false,
         showScoreModal: true,
         showCamera: false, 
@@ -355,7 +360,7 @@ Page({
 
   // --- Score Modal Methods ---
   closeScoreModal: function () {
-    this.setData({ showScoreModal: false, poseScore: null });
+    this.setData({ showScoreModal: false, poseScore: null, scoreSkeletonImageUrl: null }); // Reset scoreSkeletonImageUrl
   },
 
   onImageError: function(e) {
@@ -368,6 +373,12 @@ Page({
       // Fallback if current pose data or image_url is somehow not available when error fires
       console.warn('Image load error, current pose image_url unavailable. Event src:', e.target.id || e.target.src, 'Error details:', e.detail.errMsg);
     }
+  },
+
+  onScoreSkeletonImageError: function(e) {
+    console.error('Error loading skeleton image in score modal. URL attempted:', this.data.scoreSkeletonImageUrl, 'Error message:', e.detail.errMsg);
+    // Set to null to trigger the fallback text in WXML
+    this.setData({ scoreSkeletonImageUrl: null }); 
   },
 
   onHide: function () {
