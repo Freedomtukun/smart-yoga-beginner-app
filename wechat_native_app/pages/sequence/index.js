@@ -44,12 +44,18 @@ Page({
   initializeFrameExtractionResources: function() {
     if (!this.data.frameExtractionCanvasContext) {
       const ctx = wx.createCanvasContext('frameExtractorCanvas', this);
+      if (!ctx) {
+        console.error('[INITIALIZE_CTX_ERROR] Failed to create canvas context "frameExtractorCanvas". Subsequent operations involving this canvas will likely fail.');
+      }
       this.setData({ frameExtractionCanvasContext: ctx });
     }
     // Video context for frameExtractorVideo is created when its src is set,
     // or can be created explicitly if needed for early interaction.
     if (!this.data.frameExtractorVideoContext) {
        const videoCtx = wx.createVideoContext('frameExtractorVideo', this);
+       if (!videoCtx) {
+        console.error('[INITIALIZE_CTX_ERROR] Failed to create video context "frameExtractorVideo". Subsequent operations involving this video element might be affected.');
+      }
        this.setData({ frameExtractorVideoContext: videoCtx });
     }
   },
@@ -106,18 +112,18 @@ Page({
         console.warn("frameExtractorVideoContext not found, attempting to create.");
         videoCtx = wx.createVideoContext('frameExtractorVideo', this);
         this.setData({ frameExtractorVideoContext: videoCtx });
-        if(!videoCtx) {
-            console.error('Failed to create frameExtractorVideoContext. Aborting frame extraction.');
+        if(!videoCtx) { // This check is slightly redundant due to the one in initializeFrameExtractionResources, but good for safety.
+            console.error('[CTX_MISSING_ERROR] Frame extractor video context (frameExtractorVideo) failed to create dynamically. Aborting frame extraction. Ensure initializeFrameExtractionResources was called or video src was set.');
             this.setData({ isProcessingFrames: false });
-            wx.showToast({ title: '无法控制视频', icon: 'none' });
+            wx.showToast({ title: '视频资源错误', icon: 'none' });
             return;
         }
     }
     
     if (!canvasCtx) {
-      console.error('frameExtractionCanvasContext not found. Aborting frame extraction.');
+      console.error('[CTX_MISSING_ERROR] Frame extraction canvas context (frameExtractorCanvas) not found in this.data. Aborting frame extraction. Ensure initializeFrameExtractionResources was called and succeeded.');
       this.setData({ isProcessingFrames: false });
-      wx.showToast({ title: '无法绘图', icon: 'none' });
+      wx.showToast({ title: '绘图资源错误', icon: 'none' });
       return;
     }
 
@@ -146,6 +152,7 @@ Page({
         return;
       }
 
+      console.log(`Seeking video to ${t}s. Current video src: ${this.data.extractorVideoSrc}`);
       videoCtx.seek(t);
       
       // TODO: Refactor to use onVideoSeeked or onVideoTimeUpdate for better reliability
@@ -163,6 +170,7 @@ Page({
         wx.hideLoading();
         return;
       }
+      console.log(`Attempting to draw video frame at ${t}s to canvas 'frameExtractorCanvas'.`);
       canvasCtx.drawImage('frameExtractorVideo', 0, 0, targetWidth, targetHeight);
       
       await new Promise(resolve => {
@@ -187,7 +195,7 @@ Page({
         }, this);
         extractedFramePaths.push(frameData.tempFilePath);
       } catch (err) {
-        console.error(`Frame extraction to temp file failed at ${t}s:`, err);
+        console.error(`[CANVAS_TO_TEMP_FILE_ERROR] Frame extraction to temp file failed at ${t}s. This could be due to issues with canvas drawing, resource limits, or invalid parameters. Video time: ${t}, Canvas dimensions: ${targetWidth}x${targetHeight}. Error:`, err);
         // If one frame fails, log and continue. Consider a failure threshold later.
       }
     }
