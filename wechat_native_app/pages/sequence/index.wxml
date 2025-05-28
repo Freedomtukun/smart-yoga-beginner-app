@@ -72,20 +72,27 @@
         <button wx:else bindtap="stopRecording" class="cameraActionButton recording">停止录制</button>
       </view>
       
-      <view wx:if="{{recordedVideo && !isUploading}}" class="videoPreviewContainer">
+      <view wx:if="{{recordedVideo}}" class="videoPreviewContainer">
         <text class="previewText">视频已录制:</text>
         <!-- Mini Program doesn't have a direct video player for temp files like this in WXML easily -->
         <!-- Usually, you'd upload it then play the remote URL, or use a more complex setup -->
-        <text class="videoPathText">路径: {{recordedVideo}} (预览通常需要上传后)</text>
+        <text class="videoPathText">路径: {{recordedVideo}}</text>
         <view class="videoActions">
           <button 
-            wx:if="{{!isProcessingFrames && (!topThreeFrames || topThreeFrames.length === 0)}}" 
             bindtap="uploadAndScore" 
-            class="cameraActionButton">上传评分</button>
-          <button bindtap="retakeVideo" class="cameraActionButton secondary">重新录制</button>
+            class="cameraActionButton"
+            disabled="{{isProcessingFrames}}">
+            {{isProcessingFrames ? '处理中...' : '上传评分'}}
+          </button>
+          <button 
+            bindtap="retakeVideo" 
+            class="cameraActionButton secondary"
+            disabled="{{isProcessingFrames}}">
+            重新录制
+          </button>
         </view>
       </view>
-      <view wx:if="{{isUploading}}" class="uploadingIndicator">
+      <view wx:if="{{isUploading && !isProcessingFrames}}" class="uploadingIndicator"> <!-- Ensure old indicator doesn't overlap if isUploading is still used elsewhere -->
         <text>上传中...</text>
       </view>
 

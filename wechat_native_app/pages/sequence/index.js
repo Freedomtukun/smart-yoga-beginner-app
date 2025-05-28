@@ -194,11 +194,17 @@ Page({
   },
 
   uploadFrameForScoring: async function(framePath, poseId) {
+    // Assuming BASE_API_URL based on previous usage for /api/score_pose.
+    // No global config for this base URL was found in this specific file,
+    // so constructing it based on observed patterns.
+    const BASE_API_URL = 'https://yogamaster.aiforcause.cn';
+    const SCORING_ENDPOINT = BASE_API_URL + '/detect-pose-file';
+
     return new Promise((resolve, reject) => {
       wx.uploadFile({
-        url: 'https://yogamaster.aiforcause.cn/api/score_pose', // Actual API endpoint
+        url: SCORING_ENDPOINT, 
         filePath: framePath,
-        name: 'file', // Assuming 'file' is the expected name for the frame file by the API
+        name: 'file', // Confirmed: field name for the image file as per requirement
         formData: {
           poseId: poseId,
           // Add any other required parameters for the API, e.g., user_id if needed
@@ -415,37 +421,52 @@ Page({
     // console.log('Video seeked (frame extractor):', e.detail.currentTime);
   },
 
-  // IMPORTANT NOTE: For videos recorded using the in-page camera, 
-  // frame extraction and analysis are now automatically started by processVideoForFrames()
-  // called from stopRecording(). This function (uploadAndScore) as it relates to 
-  // this.data.recordedVideo (which is a video path) is superseded by that new flow.
-  // If this function was also intended to handle single IMAGE uploads from other sources 
-  // (e.g. chosen from gallery), that specific logic path would need to be distinct and preserved.
-  async uploadAndScore(){
-    if(!this.data.recordedVideo){wx.showToast({title:'没有录制的视频',icon:'none'});return;}
-    this.setData({isUploading:true});
-    try{
-      const res = await scorePose(this.data.recordedVideo,
-                 this.data.currentSequence.poses[this.data.currentPoseIndex].id);
-      const result = res.data?.result ?? res.data;
-      const {score,feedback,suggestions,skeleton_url,skeleton_image_url}=result;
-      this.setData({
-        poseScore:{score,feedback,suggestions},
-        skeletonUrl:             skeleton_url        || null,
-        scoreSkeletonImageUrl:   skeleton_image_url  || null,
-        showScoreModal:true,
-        isUploading:false
-      });
-    }catch(e){
-      console.error('评分接口失败',e);
-      let errMsg = '评分失败';
-      // Try to get a more specific error message
-      if (e && e.data && e.data.message) errMsg = e.data.message;
-      else if (e && e.message) errMsg = e.message; 
-      else if (e && e.errMsg) errMsg = e.errMsg; 
-      wx.showToast({title: errMsg, icon:'none'});
-      this.setData({isUploading:false}); 
+  // Repurposed: This function now triggers client-side frame extraction
+  // and batch analysis of a recorded video.
+  // It no longer uploads the video file directly for single scoring.
+  async uploadAndScore() {
+    if (!this.data.recordedVideo) {
+      wx.showToast({ title: '请先录制视频', icon: 'none' });
+      return;
     }
+
+    console.log('User triggered frame analysis for video:', this.data.recordedVideo);
+
+    // Set initial state for processing
+    this.setData({ 
+      isProcessingFrames: true, 
+      topThreeFrames: [],        // Clear previous results from UI
+      frameAnalysisResults: [],   // Clear previous analysis data
+      isUploading: false,        // Ensure old isUploading flag is false if it was used
+      poseScore: null,           // Clear any single pose score from a previous different flow
+      scoreSkeletonImageUrl: null // Clear previous single score skeleton
+    });
+
+    // Show an initial loading indicator. 
+    // Subsequent functions (processVideoForFrames, etc.) will manage their specific loading messages
+    // and ensure wx.hideLoading() is called appropriately on completion or error.
+    wx.showLoading({ title: '处理准备中...', mask: true });
+
+    // Call the first function in the frame processing pipeline
+    try {
+      // processVideoForFrames and its chain are responsible for further loading messages and error handling.
+      // If processVideoForFrames is not async, this await won't do much, but it's harmless.
+      // The primary error handling should be within the frame processing chain.
+      await this.processVideoForFrames(this.data.recordedVideo); 
+    } catch (error) {
+      // This catch is a fallback for synchronous errors thrown by processVideoForFrames itself
+      // or if it's not async and an error occurs that isn't caught internally.
+      console.error('Error starting video processing pipeline in uploadAndScore:', error);
+      this.setData({ isProcessingFrames: false });
+      wx.hideLoading(); // Ensure loading is hidden on unexpected error here
+      wx.showToast({ title: '处理启动失败', icon: 'none' });
+    }
+    // Note: wx.hideLoading() should ideally be managed by the functions called by processVideoForFrames.
+    // If those functions are guaranteed to call hideLoading, it's not strictly needed here.
+    // However, if processVideoForFrames could complete synchronously without calling hideLoading,
+    // or if an error occurs before async operations, it might be left hanging.
+    // The current structure with hideLoading in onVideoLoadMetadata's error path and
+    // selectAndDisplayTopFrames (final success/failure UI update point) is generally okay.
   },
 
   onScoreSkeletonImageError(e){
@@ -671,13 +692,17 @@ Page({
     }
     this.data.cameraContext.stopRecord({
       success: (res) => {
-        this.setData({ isRecording: false, recordedVideo: res.tempVideoPath });
-        // ---- MODIFICATION: Start frame processing instead of direct upload ----
-        console.log('Video recording stopped. Temp path:', res.tempVideoPath);
-        this.processVideoForFrames(res.tempVideoPath);
-        // Comment out or remove direct upload if frame analysis replaces it or precedes it
-        // this.uploadAndScore(); 
-        // ---- END MODIFICATION ----
+        console.log('Video recording stopped. Path:', res.tempVideoPath);
+        // Frame processing should now be triggered by user action, not automatically.
+        // Removed: this.processVideoForFrames(res.tempVideoPath);
+        this.setData({ 
+          isRecording: false, 
+          recordedVideo: res.tempVideoPath,
+          isProcessingFrames: false, // Ensure this is false as processing is not automatic
+          topThreeFrames: [],        // Clear any previous results
+          frameAnalysisResults: []   // Clear any previous results
+        });
+        // The UI should now show the video preview and the "上传评分" button.
       },
       fail: (err) => {
         console.error("Stop recording failed", err);
