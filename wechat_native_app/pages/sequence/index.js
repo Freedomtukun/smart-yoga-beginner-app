@@ -14,15 +14,15 @@ Page({
     level:'', currentSequence:null,currentPoseIndex:0,isPlaying:false,
     timeRemaining:0,loading:true,error:null,
     skeletonUrl:null,              // 主界面骨架图
-    scoreSkeletonImageUrl:null,    // 评分弹窗骨架图
-    showScoreModal:false,isUploading:false,
-    poseScore:null,
+    // The following properties and related methods (onScoreSkeletonImageError, closeScoreModal) are potentially obsolete
+    // due to the new Top 3 Frames display. Review WXML and UI before full removal.
+    // scoreSkeletonImageUrl:null,    // 评分弹窗骨架图
+    // showScoreModal:false,
+    // poseScore:null,
+    // isUploading:false, // Removed as it's unused
     timerId: null,
-    showCamera: false,
-    isRecording: false,
-    recordedVideo: null,
-    cameraContext: null,
-    cameraPosition: 'back',
+    // Old camera properties removed: showCamera, isRecording, cameraContext, cameraPosition
+    recordedVideo: null, // This is now set by wx.chooseVideo -> handleVideoValidation
 
   isProcessingFrames: false,
   frameAnalysisResults: [],
@@ -296,7 +296,7 @@ Page({
     // Setting isProcessingFrames to false here helps stop UI indicators.
     this.setData({
       isProcessingFrames: false,
-      isUploading: false, // Though this flag seems unused currently
+      // isUploading: false, // Removed
       currentUploadTasks: [], // Clear tasks
       frameAnalysisResults: [],
       topThreeFrames: []
@@ -523,8 +523,8 @@ Page({
     this.setData({ topThreeFrames: topFrames });
     console.log('Top 3 frames selected for display:', topFrames);
 
-    if (this.data.showScoreModal) this.setData({ showScoreModal: false });
-    if (this.data.showCamera) this.setData({ showCamera: false });
+    // if (this.data.showScoreModal) { this.setData({ showScoreModal: false }); } // Commented out as part of cleanup
+    // if (this.data.showCamera) this.setData({ showCamera: false }); // showCamera is removed from data
 
     if (topFrames.length > 0) {
         wx.showToast({ title: `最佳 ${topFrames.length} 帧已显示`, icon: 'success', duration: 2000 });
@@ -569,9 +569,9 @@ Page({
       isProcessingFrames: true,
       topThreeFrames: [],
       frameAnalysisResults: [],
-      isUploading: false, 
-      poseScore: null,
-      scoreSkeletonImageUrl: null,
+      // isUploading: false, // Removed
+      // poseScore: null, // Commented out
+      // scoreSkeletonImageUrl: null, // Commented out
       isCancelling: false, 
       currentUploadTasks: [],
       failedUploads: [] 
@@ -589,11 +589,11 @@ Page({
     }
   },
 
-  onScoreSkeletonImageError(e){
-    console.error('骨架图加载失败:',this.data.scoreSkeletonImageUrl,e.detail.errMsg);
-    this.setData({scoreSkeletonImageUrl:null});
-    wx.showToast({title:'骨架图加载失败',icon:'none'});
-  },
+  // onScoreSkeletonImageError(e){
+  //   console.error('骨架图加载失败:',this.data.scoreSkeletonImageUrl,e.detail.errMsg);
+  //   this.setData({scoreSkeletonImageUrl:null});
+  //   wx.showToast({title:'骨架图加载失败',icon:'none'});
+  // },
 
   onLoad: function (options) {
     const level = options.level || 'beginner';
@@ -747,6 +747,78 @@ Page({
     }
   },
 
+  // New entry point for choosing or recording video
+  handleChooseOrRecordVideo: function() {
+    // if (this.data.showCamera) { // showCamera is removed from data
+    //   this.setData({ showCamera: false }); 
+    // }
+
+    wx.chooseVideo({
+      sourceType: ['album', 'camera'],
+      compressed: false, // We will do our own compression
+      maxDuration: 15,   // Enforce 15-second limit
+      camera: 'back',    // Default to back camera
+      success: (res) => {
+        console.log("Video selected/recorded:", res);
+        // res contains tempFilePath, duration, size, height, width
+        this.handleVideoValidation({
+          tempFilePath: res.tempFilePath,
+          duration: res.duration,
+          size: res.size,
+          width: res.width,
+          height: res.height
+        });
+      },
+      fail: (err) => {
+        console.error("wx.chooseVideo failed:", err);
+        if (err.errMsg === 'chooseVideo:fail cancel' || err.errMsg.includes('cancel')) {
+          wx.showToast({ title: '操作取消', icon: 'none' });
+        } else {
+          wx.showToast({ title: '选取视频失败', icon: 'none' });
+        }
+      }
+    });
+  },
+
+  handleVideoValidation: function(videoDetails) {
+    console.log("handleVideoValidation called with:", videoDetails);
+
+    // 1. Validate Duration
+    if (videoDetails.duration > 15.5) {
+      console.warn("Video duration exceeds 15s:", videoDetails.duration);
+      wx.showModal({
+        title: '视频过长',
+        content: '您选择的视频超过15秒，请重新选取或录制一个较短的视频。',
+        showCancel: false,
+        confirmText: '知道了'
+      });
+      return;
+    }
+
+    // 2. Validate File Size
+    const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+    if (videoDetails.size > MAX_SIZE_BYTES) {
+      console.warn("Video size exceeds 10MB:", videoDetails.size);
+      wx.showModal({
+        title: '视频文件过大',
+        content: '您选择的视频超过10MB，请重新选取或录制一个较小的视频。',
+        showCancel: false,
+        confirmText: '知道了'
+      });
+      return;
+    }
+
+    // 3. If Checks Pass
+    console.log("Video validation passed. Path:", videoDetails.tempFilePath);
+    this.setData({
+      recordedVideo: videoDetails.tempFilePath,
+      topThreeFrames: [],
+      frameAnalysisResults: [],
+      failedUploads: [] 
+    });
+    this.uploadAndScore(); // Start frame extraction and upload
+  },
+
   handleCameraPress: function () {
     wx.getSetting({
       success: (res) => {
@@ -836,9 +908,13 @@ Page({
     this.setData({ cameraPosition: newPosition });
   },
 
-  closeScoreModal: function () {
-    this.setData({ showScoreModal: false, poseScore: null, scoreSkeletonImageUrl: null }); 
-  },
+  // closeScoreModal: function () {
+  //   this.setData({ 
+  //     // showScoreModal: false, // Commented out
+  //     // poseScore: null, // Commented out
+  //     // scoreSkeletonImageUrl: null // Commented out
+  //   }); 
+  // },
 
   onImageError: function(e) {
     const currentImageUrl = this.data.currentSequence && 
