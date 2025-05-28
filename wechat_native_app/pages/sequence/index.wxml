@@ -45,6 +45,10 @@
       <button class="camBtn" bindtap="handleCameraPress">
         <image src="/assets/images/cam.png" class="camIcon"/>
       </button>
+      <!-- New Upload/Record Video Button -->
+      <button bindtap="handleChooseOrRecordVideo" class="controlButton control-btn upload-btn">
+        <text class="controlButtonText">上传/录制视频</text>
+      </button>
     </view>
   </block>
 
@@ -115,7 +119,7 @@
   <canvas
     canvas-id="frameExtractorCanvas"
     id="frameExtractorCanvas"
-    style="display: none; width: 360px; height: 640px; position: absolute; top: -2000px; left: -1000px;"
+    style="width:480px; height:320px; opacity:0; position:absolute; left:-9999px; top:-9999px;"
   ></canvas>
 
   <!-- Score Modal -->
@@ -140,7 +144,7 @@
       </text>
        <!-- Example: Star rating based on score -->
       <view class="starRating">
-        <text wx:for="{{5}}" wx:key="*this" class="star {{index < (poseScore.score / 20) ? 'filled' : ''}}">*</text>
+        <text wx:for="{{5}}" wx:key="*this" class="star {{index < (poseScore.score / 20) ? 'filled' : ''}}">★</text>
       </view>
       <button bindtap="closeScoreModal" class="cameraActionButton">关闭</button>
     </view>
