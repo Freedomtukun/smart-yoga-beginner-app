@@ -3,6 +3,12 @@ const cloudSequenceService = require('../../utils/cloud-sequence-service.js');
 const sequenceService      = require('../../utils/sequence-service.js');
 const getText = v => (typeof v === 'object' ? (v.zh || v.en || '') : v);
 
+// General Note on DevTools vs. Real Devices:
+// Features like camera, video processing, and canvas manipulation can behave differently
+// between WeChat DevTools and actual hardware. Thorough testing on a range of real
+// devices is crucial to ensure reliability and performance. DevTools emulation may not
+// perfectly replicate all hardware capabilities, timing nuances, or specific API behaviors.
+
 Page({
   data:{
     level:'', currentSequence:null,currentPoseIndex:0,isPlaying:false,
@@ -53,18 +59,36 @@ Page({
 
   // Called when the hidden video's metadata is loaded
   onVideoLoadMetadata: function(e) {
+    wx.hideLoading(); // Hide any "Preparing video..." loading message from processVideoForFrames
+
     const { duration, width, height } = e.detail;
-    this.setData({
-      videoMetadata: { duration, width, height }
-    });
-    console.log('Video metadata loaded for frame extraction:', this.data.videoMetadata);
-    // Enhanced check for duration
-    if (!duration || duration <= 0) {
-      console.error('Invalid video metadata or duration:', e.detail);
-      this.setData({ isProcessingFrames: false }); // Ensure loading state is turned off
-      wx.showToast({ title: '视频加载失败，无法分析', icon: 'none' });
+    console.log('Video metadata received:', e.detail);
+
+    // NOTE (DevTools Reliability): WeChat DevTools may have limitations in accurately 
+    // reporting video metadata (duration, width, height) for all video formats or scenarios.
+    // The error modal implemented below is a general safeguard.
+    // Testing on real devices is crucial for validating video processing capabilities.
+    if (!duration || duration <= 0 || !width || width <= 0 || !height || height <= 0) {
+      console.error('Invalid video metadata:', { duration, width, height });
+      this.setData({ isProcessingFrames: false }); 
+
+      wx.showModal({
+        title: '提示',
+        content: '当前环境或视频格式不支持，请在真机上重试。',
+        showCancel: false,
+        confirmText: '知道了',
+        // success: (res) => { /* Handle OK press if needed, e.g., this.setData({ showCamera: false }); */ }
+      });
       return;
     }
+
+    this.setData({ 
+      videoMetadata: { duration, width, height },
+      // isProcessingFrames is set to true by startFrameExtractionLoop or its caller (processVideoForFrames)
+      // No need to set isProcessingFrames: true here, as startFrameExtractionLoop will manage it.
+    });
+    
+    console.log('Video metadata successfully loaded and stored:', this.data.videoMetadata);
     this.startFrameExtractionLoop();
   },
 
@@ -115,10 +139,19 @@ Page({
       
       // Wait for seek to complete. Using a delay for now.
       // TODO: Refactor to use onVideoSeeked or onVideoTimeUpdate for better reliability
-      await new Promise(resolve => setTimeout(resolve, 500)); 
+      // NOTE (DevTools Reliability): The reliability of 'seek' operation followed by immediate
+      // frame capture can vary. This fixed delay is a simple approach. More robust solutions
+      // might involve listening to 'seeked' or 'timeupdate' events, though these too can
+      // have inconsistencies between DevTools and real devices.
+      await new Promise(resolve => setTimeout(resolve, 500)); // Adjust delay as needed
 
       console.log(`Drawing frame at ${t}s to canvas frameExtractorCanvas`);
       // Attempting to draw by ID. The video element itself is 'frameExtractorVideo'.
+      // NOTE (DevTools Reliability): Drawing a video frame to canvas using its ID
+      // (i.e., 'frameExtractorVideo') can have different reliability between DevTools and real devices.
+      // DevTools might not always render or provide the frame accurately for canvas capture.
+      // If issues are observed specifically in DevTools, thorough testing on real devices is recommended.
+      // The current error handling for canvasToTempFilePath will catch issues if the drawing fails.
       canvasCtx.drawImage('frameExtractorVideo', 0, 0, canvasWidth, canvasHeight);
       
       // Wait for draw to complete
@@ -176,10 +209,12 @@ Page({
             // Assuming API returns a structure like { success: true, data: { score, feedback, skeleton_image_url } }
             // or { success: false, message: "error message" }
             if (res.statusCode === 200 && resultData.success) {
+              // Assuming resultData.data.skeleton_image_url is a full, publicly accessible URL from the API.
+              // This is consistent with how skeleton_url and skeleton_image_url are handled in the original uploadAndScore function.
               resolve({
                 score: resultData.data?.score,
                 feedback: resultData.data?.feedback,
-                skeletonUrl: resultData.data?.skeleton_image_url, // Key matches API assumption
+                skeletonUrl: resultData.data?.skeleton_image_url, 
                 originalFramePath: framePath
               });
             } else {
