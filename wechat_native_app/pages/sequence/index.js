@@ -17,7 +17,6 @@ Page({
     scoreSkeletonImageUrl:null,    // 评分弹窗骨架图
     showScoreModal:false,isUploading:false,
     poseScore:null,
-    // Merged from original data:
     timerId: null,
     showCamera: false,
     isRecording: false,
@@ -25,10 +24,12 @@ Page({
     cameraContext: null,
     cameraPosition: 'back',
 
-  // New properties for frame extraction and analysis:
-  isProcessingFrames: false,      // Boolean flag to show/hide frame processing progress UI
-  frameAnalysisResults: [],     // Array to store {score, skeletonUrl, feedback, originalFramePath, error} for each analyzed frame
-  topThreeFrames: [],           // Array to store the top 3 frames {score, skeletonUrl, feedback} for display
+  isProcessingFrames: false,
+  frameAnalysisResults: [],
+  topThreeFrames: [],
+  isCancelling: false,          // Flag to indicate user-initiated cancellation
+  currentUploadTasks: [],     // Array to store ongoing wx.uploadFile tasks
+  failedUploads: [],          // Array to store info about failed uploads for retry
   videoMetadata: {              // Object to hold metadata (duration, width, height) of the video being processed
     duration: 0,
     width: 0,
@@ -44,25 +45,19 @@ Page({
     if (!this.data.frameExtractionCanvasContext) {
       const ctx = wx.createCanvasContext('frameExtractorCanvas', this);
       this.setData({ frameExtractionCanvasContext: ctx });
-      console.log('Frame extraction canvas context initialized.');
     }
     // Video context for frameExtractorVideo is created when its src is set,
     // or can be created explicitly if needed for early interaction.
-    // For now, we'll rely on it being available after src is set.
-    // If direct control before loading is needed:
     if (!this.data.frameExtractorVideoContext) {
        const videoCtx = wx.createVideoContext('frameExtractorVideo', this);
        this.setData({ frameExtractorVideoContext: videoCtx });
-       console.log('Frame extractor video context explicitly created.');
     }
   },
 
-  // Called when the hidden video's metadata is loaded
   onVideoLoadMetadata: function(e) {
-    wx.hideLoading(); // Hide any "Preparing video..." loading message from processVideoForFrames
+    wx.hideLoading(); 
 
     const { duration, width, height } = e.detail;
-    console.log('Video metadata received:', e.detail);
 
     // NOTE (DevTools Reliability): WeChat DevTools may have limitations in accurately 
     // reporting video metadata (duration, width, height) for all video formats or scenarios.
@@ -77,7 +72,6 @@ Page({
         content: '当前环境或视频格式不支持，请在真机上重试。',
         showCancel: false,
         confirmText: '知道了',
-        // success: (res) => { /* Handle OK press if needed, e.g., this.setData({ showCamera: false }); */ }
       });
       return;
     }
@@ -95,14 +89,14 @@ Page({
   // Core logic for extracting frames
   startFrameExtractionLoop: async function() {
     // Reset states at the beginning of frame extraction.
-    this.setData({ 
-      isProcessingFrames: true, 
-      frameAnalysisResults: [], 
+    this.setData({
+      isProcessingFrames: true,
+      frameAnalysisResults: [],
       topThreeFrames: [],
+      isCancelling: false, // Ensure cancellation flag is reset
       // Consider resetting extractorVideoSrc if it causes issues being stale, though usually it's fine.
       // extractorVideoSrc: null 
     });
-    console.log('Starting frame extraction loop...');
 
     const { duration, width, height } = this.data.videoMetadata;
     let videoCtx = this.data.frameExtractorVideoContext;
@@ -127,59 +121,82 @@ Page({
       return;
     }
 
-    const canvasWidth = 360; 
-    const canvasHeight = Math.round(canvasWidth * (height / width)) || 640; 
-    console.log(`Canvas dimensions for extraction: ${canvasWidth}x${canvasHeight}`);
+    // Calculate target dimensions for resizing
+    const originalWidth = this.data.videoMetadata.width;
+    const originalHeight = this.data.videoMetadata.height;
+    let targetWidth;
+    let targetHeight;
+
+    if (originalWidth > 480) {
+      targetWidth = 480;
+      targetHeight = Math.round(originalHeight * (480 / originalWidth));
+    } else {
+      targetWidth = originalWidth;
+      targetHeight = originalHeight;
+    }
+    console.log(`Target dimensions for extraction: ${targetWidth}x${targetHeight}`);
 
     let extractedFramePaths = [];
 
-    for (let t = 0; t < duration; t++) {
-      console.log(`Seeking to ${t}s`);
+    for (let t = 0; t < duration; t += 2) {
+      if (this.data.isCancelling) {
+        console.log("Cancellation detected in frame extraction loop (start).");
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        return;
+      }
+
       videoCtx.seek(t);
       
-      // Wait for seek to complete. Using a delay for now.
       // TODO: Refactor to use onVideoSeeked or onVideoTimeUpdate for better reliability
-      // NOTE (DevTools Reliability): The reliability of 'seek' operation followed by immediate
-      // frame capture can vary. This fixed delay is a simple approach. More robust solutions
-      // might involve listening to 'seeked' or 'timeupdate' events, though these too can
-      // have inconsistencies between DevTools and real devices.
-      await new Promise(resolve => setTimeout(resolve, 500)); // Adjust delay as needed
+      await new Promise(resolve => setTimeout(resolve, 500)); 
+      if (this.data.isCancelling) {
+        console.log("Cancellation detected in frame extraction loop (after seek delay).");
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        return;
+      }
 
-      console.log(`Drawing frame at ${t}s to canvas frameExtractorCanvas`);
-      // Attempting to draw by ID. The video element itself is 'frameExtractorVideo'.
-      // NOTE (DevTools Reliability): Drawing a video frame to canvas using its ID
-      // (i.e., 'frameExtractorVideo') can have different reliability between DevTools and real devices.
-      // DevTools might not always render or provide the frame accurately for canvas capture.
-      // If issues are observed specifically in DevTools, thorough testing on real devices is recommended.
-      // The current error handling for canvasToTempFilePath will catch issues if the drawing fails.
-      canvasCtx.drawImage('frameExtractorVideo', 0, 0, canvasWidth, canvasHeight);
+      if (this.data.isCancelling) { 
+        console.log("Cancellation detected in frame extraction loop (before drawImage).");
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        return;
+      }
+      canvasCtx.drawImage('frameExtractorVideo', 0, 0, targetWidth, targetHeight);
       
-      // Wait for draw to complete
       await new Promise(resolve => {
         canvasCtx.draw(false, () => {
-          console.log(`Canvas draw completed for time ${t}s`);
           resolve();
         });
       });
 
+      if (this.data.isCancelling) { 
+        console.log("Cancellation detected in frame extraction loop (before canvasToTempFilePath).");
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        return;
+      }
       try {
         const frameData = await wx.canvasToTempFilePath({
-          x: 0,
-          y: 0,
-          width: canvasWidth,
-          height: canvasHeight,
-          destWidth: canvasWidth,
-          destHeight: canvasHeight,
+          x: 0, y: 0,
+          width: targetWidth, height: targetHeight,
+          destWidth: targetWidth, destHeight: targetHeight,
           canvasId: 'frameExtractorCanvas',
-          fileType: 'jpg',
-          quality: 0.8
-        }, this); // 'this' context is important here
+          fileType: 'jpg', quality: 0.7
+        }, this);
         extractedFramePaths.push(frameData.tempFilePath);
-        console.log(`Extracted frame ${extractedFramePaths.length}/${Math.floor(duration)}: ${frameData.tempFilePath}`);
       } catch (err) {
         console.error(`Frame extraction to temp file failed at ${t}s:`, err);
         // If one frame fails, log and continue. Consider a failure threshold later.
       }
+    }
+
+    if (this.data.isCancelling) {
+      console.log("Cancellation detected after frame extraction loop.");
+      this.setData({ isProcessingFrames: false, isCancelling: false });
+      wx.hideLoading();
+      return;
     }
 
     console.log('All frames extracted attempts finished. Paths:', extractedFramePaths);
@@ -187,24 +204,25 @@ Page({
     if (extractedFramePaths.length > 0) {
       this.analyzeFramesBatch(extractedFramePaths);
     } else {
-      this.setData({ isProcessingFrames: false }); // Ensure this is set on failure
-      wx.showToast({ title: '未能成功提取任何帧', icon: 'none' });
-      console.warn('No frames were extracted from the video.');
+      // If no frames, and not cancelling, it's a normal failure to extract.
+      if (!this.data.isCancelling) {
+        this.setData({ isProcessingFrames: false });
+        wx.showToast({ title: '未能成功提取任何帧', icon: 'none' });
+        console.warn('No frames were extracted from the video.');
+      }
+      // If isCancelling was true, it would have been caught above.
     }
   },
 
-  uploadFrameForScoring: async function(framePath, poseId) {
-    // Assuming BASE_API_URL based on previous usage for /api/score_pose.
-    // No global config for this base URL was found in this specific file,
-    // so constructing it based on observed patterns.
+  uploadFrameForScoring: function(framePath, poseId) {
     const BASE_API_URL = 'https://yogamaster.aiforcause.cn';
     const SCORING_ENDPOINT = BASE_API_URL + '/detect-pose-file';
-
-    return new Promise((resolve, reject) => {
-      wx.uploadFile({
-        url: SCORING_ENDPOINT, 
+    let task; // Declare task variable
+    const promise = new Promise((resolve, reject) => {
+      task = wx.uploadFile({ // Assign to task
+        url: SCORING_ENDPOINT,
         filePath: framePath,
-        name: 'file', // Confirmed: field name for the image file as per requirement
+        name: 'file',
         formData: {
           poseId: poseId,
           // Add any other required parameters for the API, e.g., user_id if needed
@@ -212,15 +230,11 @@ Page({
         success: (res) => {
           try {
             const resultData = JSON.parse(res.data);
-            // Assuming API returns a structure like { success: true, data: { score, feedback, skeleton_image_url } }
-            // or { success: false, message: "error message" }
             if (res.statusCode === 200 && resultData.success) {
-              // Assuming resultData.data.skeleton_image_url is a full, publicly accessible URL from the API.
-              // This is consistent with how skeleton_url and skeleton_image_url are handled in the original uploadAndScore function.
               resolve({
                 score: resultData.data?.score,
                 feedback: resultData.data?.feedback,
-                skeletonUrl: resultData.data?.skeleton_image_url, 
+                skeletonUrl: resultData.data?.skeleton_image_url,
                 originalFramePath: framePath
               });
             } else {
@@ -236,237 +250,343 @@ Page({
             reject({
               error: 'Failed to parse API response.',
               originalFramePath: framePath,
-              details: res.data // Include raw response data for debugging
+              details: res.data
             });
           }
         },
         fail: (err) => {
-          console.error('wx.uploadFile failed for frame', framePath, err);
-          reject({
-            error: `Upload failed: ${err.errMsg}`,
-            originalFramePath: framePath,
-            details: err
-          });
+          // Check if the failure was due to abortion
+          if (err.errMsg && err.errMsg.includes('abort')) {
+            console.log('Upload task aborted for frame:', framePath);
+            reject({
+              error: 'Upload aborted by user.',
+              originalFramePath: framePath,
+              wasAborted: true // Custom flag
+            });
+          } else {
+            console.error('wx.uploadFile failed for frame', framePath, err);
+            reject({
+              error: `Upload failed: ${err.errMsg}`,
+              originalFramePath: framePath,
+              details: err
+            });
+          }
         }
       });
     });
+    return { promise, task }; // Return both
   },
 
-  analyzeFramesBatch: async function(framePathsArray) {
-    if (!framePathsArray || framePathsArray.length === 0) {
-      console.log('No frames to analyze.');
-      this.setData({ isProcessingFrames: false });
-      wx.showToast({ title: '没有提取到帧进行分析', icon: 'none' });
+  handleCancelUpload: function() {
+    console.log("User initiated cancellation.");
+    this.setData({ isCancelling: true });
+
+    // Abort ongoing upload tasks
+    if (this.data.currentUploadTasks && this.data.currentUploadTasks.length > 0) {
+      console.log(`Attempting to abort ${this.data.currentUploadTasks.length} upload tasks.`);
+      this.data.currentUploadTasks.forEach(task => {
+        if (task && typeof task.abort === 'function') {
+          task.abort();
+        }
+      });
+    }
+
+    // Reset relevant states
+    // Note: isCancelling will be reset by the loops when they detect it, or if already done, no harm.
+    // Setting isProcessingFrames to false here helps stop UI indicators.
+    this.setData({
+      isProcessingFrames: false,
+      isUploading: false, // Though this flag seems unused currently
+      currentUploadTasks: [], // Clear tasks
+      frameAnalysisResults: [],
+      topThreeFrames: []
+      // isCancelling: false, // Let loops handle this for now to ensure they exit cleanly.
+                           // Or, set it here and ensure loops also set it to false upon exit.
+                           // For safety, loops will set it to false.
+    });
+    wx.hideLoading();
+    wx.showToast({ title: 'Processing cancelled', icon: 'none' });
+  },
+
+  analyzeFramesBatch: async function(framePathsArray, _poseId = null) {
+    if (this.data.isCancelling) { // Early exit if cancellation already requested
+      console.log("analyzeFramesBatch: Cancellation detected at start.");
+      this.setData({ isProcessingFrames: false, isCancelling: false });
+      wx.hideLoading();
       return;
     }
 
-    this.setData({ isProcessingFrames: true }); 
+    if (!framePathsArray || framePathsArray.length === 0) {
+      // If called with empty array (e.g. from retry logic with no failed uploads)
+      // ensure processing is false and don't show "no frames" toast if it was a retry call.
+      if (!_poseId) { // Only show toast if it's an initial call, not a retry of an empty list
+          wx.showToast({ title: '没有提取到帧进行分析', icon: 'none' });
+      }
+      this.setData({ isProcessingFrames: false });
+      return;
+    }
+
+    this.setData({ isProcessingFrames: true, currentUploadTasks: [] });
     wx.showLoading({ title: '分析帧中 (0%)...', mask: true });
 
-    // Enhanced check for poseId availability
-    if (!this.data.currentSequence || 
-        !this.data.currentSequence.poses[this.data.currentPoseIndex] || 
-        !this.data.currentSequence.poses[this.data.currentPoseIndex].id) {
-      console.error('Current pose ID is not available for analysis.');
-      this.setData({ isProcessingFrames: false });
-      wx.hideLoading(); // Hide loading before showing toast
-      wx.showToast({ title: '无法获取当前体式ID', icon: 'none' });
-      return;
-    }
-    const poseId = this.data.currentSequence.poses[this.data.currentPoseIndex].id;
+    const poseId = _poseId || (this.data.currentSequence && this.data.currentSequence.poses[this.data.currentPoseIndex] && this.data.currentSequence.poses[this.data.currentPoseIndex].id);
 
-    let uploadPromises = [];
-    for (const framePath of framePathsArray) {
-      uploadPromises.push(this.uploadFrameForScoring(framePath, poseId));
+    if (!poseId) {
+        console.error('Critical: Pose ID not found for analysis.');
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        wx.showToast({ title: '无法确定体式ID进行分析', icon: 'none' });
+        return;
     }
 
-    const results = await Promise.allSettled(uploadPromises);
-    
-    let analysisResults = [];
-    let successfulUploads = 0;
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        analysisResults.push(result.value);
-        successfulUploads++;
-      } else {
-        console.error('Frame analysis failed:', result.reason);
-        analysisResults.push({
-          score: 0, 
-          feedback: '分析失败: ' + (result.reason.error || '未知错误'),
-          skeletonUrl: null, 
-          originalFramePath: result.reason.originalFramePath,
-          error: result.reason.details || result.reason.error
-        });
-      }
-      // Update loading message
-      const progress = Math.round(((index + 1) / framePathsArray.length) * 100);
-      wx.showLoading({ title: `分析帧中 (${progress}%)...`, mask: true });
-    });
-    
-    wx.hideLoading();
-    this.setData({
-      frameAnalysisResults: analysisResults,
-      // isProcessingFrames will be set to false by selectAndDisplayTopFrames or if errors occur there
-    });
-    
-    console.log('All frames analysis attempt complete:', analysisResults);
-
-    // Enhanced UI Feedback based on analysis results
+    const BATCH_SIZE = 3;
     const totalFrames = framePathsArray.length;
-    if (successfulUploads === 0 && totalFrames > 0) {
+    let processedCount = 0;
+    let successfulUploads = 0;
+
+    // If this is not a retry call, clear previous frameAnalysisResults.
+    // For retries, we append to the existing (filtered) results.
+    if (!_poseId) {
+      this.setData({ frameAnalysisResults: [] });
+    }
+
+    for (let i = 0; i < totalFrames; i += BATCH_SIZE) {
+      if (this.data.isCancelling) {
+        console.log("Cancellation detected in batch analysis main loop.");
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        return;
+      }
+
+      const currentBatchPaths = framePathsArray.slice(i, i + BATCH_SIZE);
+      let uploadPromises = [];
+      let batchUploadTasks = [];
+
+      for (const framePath of currentBatchPaths) {
+        if (this.data.isCancelling) {
+          console.log("Cancellation detected before processing a frame in a batch.");
+          break; 
+        }
+        processedCount++;
+        wx.showLoading({ title: `Analysing frame ${processedCount}/${totalFrames}...`, mask: true });
+        
+        const { promise, task } = this.uploadFrameForScoring(framePath, poseId);
+        uploadPromises.push(promise);
+        batchUploadTasks.push(task);
+        this.setData({ currentUploadTasks: [...this.data.currentUploadTasks, task] });
+      }
+
+      if (this.data.isCancelling) { 
+        console.log("Cancellation detected after processing a partial batch or inner loop break.");
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        return;
+      }
+
+      const batchResults = await Promise.allSettled(uploadPromises);
+      
+      this.setData({ 
+        currentUploadTasks: this.data.currentUploadTasks.filter(t => !batchUploadTasks.includes(t))
+      });
+
+      if (this.data.isCancelling) {
+        console.log("Cancellation detected after Promise.allSettled for a batch.");
+        this.setData({ isProcessingFrames: false, isCancelling: false });
+        wx.hideLoading();
+        return;
+      }
+      
+      let currentDataResults = this.data.frameAnalysisResults;
+
+      batchResults.forEach(result => {
+        let frameOutcome;
+        if (result.status === 'fulfilled') {
+          frameOutcome = result.value;
+          successfulUploads++;
+        } else {
+          console.error('Frame analysis failed:', result.reason);
+          if (result.reason && result.reason.wasAborted) {
+            frameOutcome = {
+              score: 0, feedback: 'Upload cancelled by user.', skeletonUrl: null,
+              originalFramePath: result.reason.originalFramePath, error: result.reason.error, wasCancelled: true
+            };
+          } else {
+            // This is a genuine failure, store all necessary info
+            frameOutcome = {
+              score: 0, feedback: '分析失败: ' + (result.reason.error || '未知错误'), skeletonUrl: null,
+              originalFramePath: result.reason.originalFramePath, 
+              error: result.reason.error || result.reason.details || 'Unknown upload error',
+              poseId: poseId 
+            };
+          }
+        }
+        currentDataResults.push(frameOutcome);
+      });
+      this.setData({ frameAnalysisResults: currentDataResults });
+    }
+
+    wx.hideLoading();
+    
+    if (this.data.isCancelling) {
+        console.log("Cancellation detected at the end of analyzeFramesBatch before final processing.");
+        this.setData({ isProcessingFrames: false, isCancelling: false, currentUploadTasks: [] });
+        return;
+    }
+
+    this.setData({ currentUploadTasks: [] }); 
+
+    const sessionFailedUploads = this.data.frameAnalysisResults
+      .filter(r => r.error && !r.wasCancelled)
+      .map(r => ({
+        framePath: r.originalFramePath,
+        poseId: r.poseId || poseId, 
+        error: r.error
+      }));
+      
+    this.setData({ failedUploads: sessionFailedUploads });
+
+    if (sessionFailedUploads.length > 0) {
+      console.log(`${sessionFailedUploads.length} frames failed to upload. User can be prompted to retry.`);
+      wx.showToast({ title: `${sessionFailedUploads.length} frames failed. Retry available.`, icon: 'none', duration: 3000 });
+    }
+
+    console.log('All frames analysis attempt complete:', this.data.frameAnalysisResults);
+
+    if (successfulUploads === 0 && totalFrames > 0 && sessionFailedUploads.length === 0) { 
       wx.showToast({ title: '所有帧分析失败', icon: 'none', duration: 2000 });
-    } else if (successfulUploads < totalFrames && successfulUploads > 0) {
+    } else if (successfulUploads < totalFrames && successfulUploads > 0 && sessionFailedUploads.length === 0) {
       wx.showToast({ title: `部分帧分析失败 (${successfulUploads}/${totalFrames} 成功)`, icon: 'none', duration: 2000 });
     } else if (successfulUploads === totalFrames && totalFrames > 0) {
-      // This toast might be redundant if selectAndDisplayTopFrames shows a success message
-      // wx.showToast({ title: `所有帧分析成功!`, icon: 'success', duration: 2000 });
       console.log("All frames analyzed successfully.");
     }
-    // No specific toast if totalFrames is 0, as that's handled earlier.
     
-    this.selectAndDisplayTopFrames(); // This will handle final UI updates and potential further toasts
+    this.selectAndDisplayTopFrames();
+    this.setData({ isCancelling: false });
+  },
+
+  handleRetryFailedUploads: function() {
+    if (!this.data.failedUploads || this.data.failedUploads.length === 0) {
+      wx.showToast({ title: 'No failed uploads to retry.', icon: 'none' });
+      return;
+    }
+
+    const framesToRetryInfo = [...this.data.failedUploads]; 
+    const framesToRetryPaths = framesToRetryInfo.map(f => f.framePath);
+    // Assuming all failed uploads in a session belong to the same poseId for simplicity.
+    const poseIdForRetry = framesToRetryInfo[0]?.poseId; 
+
+    this.setData({ failedUploads: [] }); 
+
+    if (framesToRetryPaths.length > 0 && poseIdForRetry) {
+      this.setData({ isProcessingFrames: true }); 
+
+      let currentResults = this.data.frameAnalysisResults.filter(
+        r => !framesToRetryPaths.includes(r.originalFramePath) || (r.originalFramePath && r.score > 0) 
+      );
+      this.setData({ frameAnalysisResults: currentResults });
+
+      this.analyzeFramesBatch(framesToRetryPaths, poseIdForRetry);
+    } else {
+      wx.showToast({ title: 'Nothing to retry or pose ID missing.', icon: 'none' });
+      this.setData({ isProcessingFrames: false }); 
+    }
   },
 
   selectAndDisplayTopFrames: function() {
-    const results = this.data.frameAnalysisResults;
-
-    // Ensure isProcessingFrames is turned off here as this is a final step in the flow.
-    this.setData({ isProcessingFrames: false });
-
-    if (!results || results.length === 0) {
-      console.log('No analysis results to select from for top frames.');
-      this.setData({ topThreeFrames: [] }); 
-      // If analyzeFramesBatch already showed "All frames analysis failed", this might be redundant.
-      // Consider if a toast is needed here if results are empty.
-      // For example, if analyzeFramesBatch didn't show a specific "all failed" toast.
+    if (this.data.isCancelling) {
+      // console.log("selectAndDisplayTopFrames: Skipped due to cancellation flag."); // Retained for its value
+      this.setData({ isProcessingFrames: false, isCancelling: false, topThreeFrames: [] });
       return;
     }
 
-    // Filter for valid results that have a numeric score
-    const validResults = results.filter(r => r && typeof r.score === 'number' && r.score > 0 && r.skeletonUrl);
+    const results = this.data.frameAnalysisResults;
+    this.setData({ isProcessingFrames: false }); 
+
+    if (!results || results.length === 0) {
+      this.setData({ topThreeFrames: [] });
+      return; 
+    }
+
+    const validResults = results.filter(r => r && typeof r.score === 'number' && r.score > 0 && r.skeletonUrl && !r.wasCancelled);
     
     if (validResults.length === 0) {
-      console.log('No valid frames with scores found to display as top frames.');
       this.setData({ topThreeFrames: [] });
-      // If analyzeFramesBatch indicated some successes but they didn't meet criteria (score > 0, skeletonUrl)
-      // then a toast here is useful.
-      if (results.some(r => r && typeof r.score === 'number')) { // Check if there were any results at all
+      if (results.filter(r => !r.wasCancelled).length > 0) { 
          wx.showToast({ title: '未选出足够评分的帧展示', icon: 'none' });
       }
       return;
     }
 
-    // Sort by score in descending order
     validResults.sort((a, b) => b.score - a.score);
-
-    // Select top 3 frames
     const topFrames = validResults.slice(0, 3);
 
     this.setData({ topThreeFrames: topFrames });
     console.log('Top 3 frames selected for display:', topFrames);
 
-    // Decision on modals:
-    // The new topThreeFrames UI is designed to be a separate section.
-    // If the regular single-video score modal (showScoreModal) is open,
-    // it might be confusing to also show the top three.
-    // For now, let's explicitly hide the single score modal if it's showing,
-    // and ensure the camera modal is also closed to provide a clean view for top frames.
-    if (this.data.showScoreModal) {
-      this.setData({ showScoreModal: false });
-    }
-    if (this.data.showCamera) {
-        // This implies the user is done with recording and camera view.
-        // However, if the top 3 frames are shown *within* the camera modal area,
-        // this line would be removed. Based on previous WXML, it's outside.
-        // Closing camera modal makes sense to show the results clearly.
-        this.setData({ showCamera: false });
-    }
+    if (this.data.showScoreModal) this.setData({ showScoreModal: false });
+    if (this.data.showCamera) this.setData({ showCamera: false });
 
     if (topFrames.length > 0) {
-        wx.showToast({
-            title: `最佳 ${topFrames.length} 帧已显示`,
-            icon: 'success',
-            duration: 2000
-        });
+        wx.showToast({ title: `最佳 ${topFrames.length} 帧已显示`, icon: 'success', duration: 2000 });
     }
+    this.setData({ isCancelling: false });
   },
 
-  // Entry point for processing video for frames
   processVideoForFrames: function(videoPath) {
-    console.log('Starting video processing for frames:', videoPath);
-    // Setting isProcessingFrames true here provides immediate feedback
-    this.setData({ isProcessingFrames: true, topThreeFrames: [], frameAnalysisResults: [] }); 
-    wx.showLoading({ title: '准备视频分析...', mask: true }); // Mask to prevent user interaction
+    this.setData({ 
+      isProcessingFrames: true, 
+      topThreeFrames: [], 
+      frameAnalysisResults: [],
+      isCancelling: false, 
+      currentUploadTasks: [] 
+    }); 
+    wx.showLoading({ title: '准备视频分析...', mask: true });
     
-    this.initializeFrameExtractionResources(); // This is synchronous
+    this.initializeFrameExtractionResources();
     
-    // Set the src for the hidden video, which should trigger onVideoLoadMetadata
     this.setData({ extractorVideoSrc: videoPath }, () => {
-        // wx.hideLoading(); // Loading is hidden by onVideoLoadMetadata or its error paths
-        console.log('extractorVideoSrc has been set. Video should start loading.');
-        // The actual processing starts when onVideoLoadMetadata is triggered.
-        // If onVideoLoadMetadata fails to trigger, isProcessingFrames might remain true.
-        // Consider a timeout here to reset isProcessingFrames if metadata doesn't load.
-        // For now, assume onVideoLoadMetadata or onVideoError (if we had it) would handle it.
+        // console.log('extractorVideoSrc has been set. Video should start loading.'); // Removed
     });
   },
-  
+
   // Optional: Placeholder for onVideoTimeUpdate
   onVideoTimeUpdate: function(e) {
-    // console.log('Video timeupdate (frame extractor):', e.detail.currentTime);
+    // console.log('Video timeupdate (frame extractor):', e.detail.currentTime); // Kept as it's already commented
   },
 
   // Optional: Placeholder for onVideoSeeked
   onVideoSeeked: function(e) {
-    // console.log('Video seeked (frame extractor):', e.detail.currentTime);
+    // console.log('Video seeked (frame extractor):', e.detail.currentTime); // Kept as it's already commented
   },
 
-  // Repurposed: This function now triggers client-side frame extraction
-  // and batch analysis of a recorded video.
-  // It no longer uploads the video file directly for single scoring.
   async uploadAndScore() {
     if (!this.data.recordedVideo) {
       wx.showToast({ title: '请先录制视频', icon: 'none' });
       return;
     }
 
-    console.log('User triggered frame analysis for video:', this.data.recordedVideo);
-
-    // Set initial state for processing
-    this.setData({ 
-      isProcessingFrames: true, 
-      topThreeFrames: [],        // Clear previous results from UI
-      frameAnalysisResults: [],   // Clear previous analysis data
-      isUploading: false,        // Ensure old isUploading flag is false if it was used
-      poseScore: null,           // Clear any single pose score from a previous different flow
-      scoreSkeletonImageUrl: null // Clear previous single score skeleton
+    this.setData({
+      isProcessingFrames: true,
+      topThreeFrames: [],
+      frameAnalysisResults: [],
+      isUploading: false, 
+      poseScore: null,
+      scoreSkeletonImageUrl: null,
+      isCancelling: false, 
+      currentUploadTasks: [],
+      failedUploads: [] 
     });
 
-    // Show an initial loading indicator. 
-    // Subsequent functions (processVideoForFrames, etc.) will manage their specific loading messages
-    // and ensure wx.hideLoading() is called appropriately on completion or error.
     wx.showLoading({ title: '处理准备中...', mask: true });
 
-    // Call the first function in the frame processing pipeline
     try {
-      // processVideoForFrames and its chain are responsible for further loading messages and error handling.
-      // If processVideoForFrames is not async, this await won't do much, but it's harmless.
-      // The primary error handling should be within the frame processing chain.
-      await this.processVideoForFrames(this.data.recordedVideo); 
+      await this.processVideoForFrames(this.data.recordedVideo);
     } catch (error) {
-      // This catch is a fallback for synchronous errors thrown by processVideoForFrames itself
-      // or if it's not async and an error occurs that isn't caught internally.
       console.error('Error starting video processing pipeline in uploadAndScore:', error);
-      this.setData({ isProcessingFrames: false });
-      wx.hideLoading(); // Ensure loading is hidden on unexpected error here
+      this.setData({ isProcessingFrames: false, isCancelling: false }); 
+      wx.hideLoading();
       wx.showToast({ title: '处理启动失败', icon: 'none' });
     }
-    // Note: wx.hideLoading() should ideally be managed by the functions called by processVideoForFrames.
-    // If those functions are guaranteed to call hideLoading, it's not strictly needed here.
-    // However, if processVideoForFrames could complete synchronously without calling hideLoading,
-    // or if an error occurs before async operations, it might be left hanging.
-    // The current structure with hideLoading in onVideoLoadMetadata's error path and
-    // selectAndDisplayTopFrames (final success/failure UI update point) is generally okay.
   },
 
   onScoreSkeletonImageError(e){
@@ -479,31 +599,25 @@ Page({
     const level = options.level || 'beginner';
     this.setData({ level: level });
     this.loadSequenceData(level);
-
-    // Removed soundContext initialization and global handlers
   },
 
   async loadSequenceData(level) {
     this.setData({ loading: true, error: null });
     wx.showLoading({ title: '加载中...' });
     try {
-      // Fetches sequence data with mapped URLs (e.g., pose.image_url, pose.audioGuide are full URLs)
       const sequenceData = await cloudSequenceService.getProcessedSequence(level);
       
       if (sequenceData && sequenceData.poses && sequenceData.poses.length > 0) {
-        // sequenceService.setSequence initializes state based on the fetched sequence
         const initialState = sequenceService.setSequence(sequenceData); 
         this.setData({
-          ...initialState, // currentSequence, currentPoseIndex, isPlaying, timeRemaining
+          ...initialState, 
           loading: false,
         });
         wx.hideLoading();
-        // Assuming sequenceData.name is {en: "...", zh: "..."} as per JSDoc
-        // and cloudSequenceService returns data in this structure.
         wx.setNavigationBarTitle({ title: `${getText(initialState.currentSequence.name)} - ${initialState.currentPoseIndex + 1}/${initialState.currentSequence.poses.length}` });
       } else {
         console.error('No sequence data or empty poses array returned for level:', level);
-        throw new Error('加载的序列数据无效'); // More user-friendly error
+        throw new Error('加载的序列数据无效'); 
       }
     } catch (err) {
       console.error('Failed to load sequence:', err);
@@ -513,7 +627,7 @@ Page({
       if (err && err.message === 'MISSING_SIGNED_URL') {
         userErrorMessage = '序列配置获取失败，请检查网络或稍后重试。';
         toastMessage = '序列配置获取失败';
-      } else if (err && err.message) { // Covers '加载的序列数据无效' and other specific messages from cloud service
+      } else if (err && err.message) { 
         userErrorMessage = '加载序列时发生错误，请稍后重试。'; 
         toastMessage = '加载错误'; 
       }
@@ -534,10 +648,8 @@ Page({
     const timerId = setInterval(() => {
       if (this.data.timeRemaining > 0) {
         const newTimeRemaining = this.data.timeRemaining - 1;
-        console.log('Timer tick:', newTimeRemaining); 
         this.setData({ timeRemaining: newTimeRemaining });
       } else {
-        console.log('Timer ended, clearing interval.'); 
         clearInterval(this.data.timerId);
         this.setData({ timerId: null });
         if (this.data.isPlaying) { 
@@ -567,7 +679,6 @@ Page({
       audioCtx.src = src;
 
       audioCtx.onEnded(() => {
-        console.log('Audio ended for src:', src);
         audioCtx.destroy();
         resolve();
       });
@@ -580,7 +691,6 @@ Page({
       });
       
       audioCtx.play();
-      console.log("Attempting to play audio from URL:", src);
     });
   },
 
@@ -604,12 +714,10 @@ Page({
       if (this.data.isPlaying) {
         const newCurrentPose = currentSequence.poses[nextState.currentPoseIndex_new];
         this.playAudioGuidance(newCurrentPose.audioGuide)
-          .then(() => {
-            console.log('Audio finished playing in handleNext');
-          })
+          .then(() => {})
           .catch(error => {
             console.error("Audio playback error in handleNext:", error);
-            wx.showToast({ title: '音频播放失败', icon: 'none' });
+            // Toast is already shown in playAudioGuidance
           });
         this.startTimer();
       }
@@ -628,12 +736,10 @@ Page({
     if (isPlaying_new) {
       const currentPose = this.data.currentSequence.poses[this.data.currentPoseIndex];
       this.playAudioGuidance(currentPose.audioGuide)
-        .then(() => {
-          console.log('Audio finished playing in togglePlayPause');
-        })
+        .then(() => {})
         .catch(error => {
           console.error("Audio playback error in togglePlayPause:", error);
-            wx.showToast({ title: '音频播放失败', icon: 'none' });
+          // Toast is already shown in playAudioGuidance
         });
       this.startTimer();
     } else {
@@ -692,17 +798,13 @@ Page({
     }
     this.data.cameraContext.stopRecord({
       success: (res) => {
-        console.log('Video recording stopped. Path:', res.tempVideoPath);
-        // Frame processing should now be triggered by user action, not automatically.
-        // Removed: this.processVideoForFrames(res.tempVideoPath);
         this.setData({ 
           isRecording: false, 
           recordedVideo: res.tempVideoPath,
-          isProcessingFrames: false, // Ensure this is false as processing is not automatic
-          topThreeFrames: [],        // Clear any previous results
-          frameAnalysisResults: []   // Clear any previous results
+          isProcessingFrames: false, 
+          topThreeFrames: [],        
+          frameAnalysisResults: []   
         });
-        // The UI should now show the video preview and the "上传评分" button.
       },
       fail: (err) => {
         console.error("Stop recording failed", err);
