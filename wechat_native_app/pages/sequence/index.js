@@ -18,8 +18,374 @@ Page({
     recordedVideo: null,
     cameraContext: null,
     cameraPosition: 'back',
+
+  // New properties for frame extraction and analysis:
+  isProcessingFrames: false,      // Boolean flag to show/hide frame processing progress UI
+  frameAnalysisResults: [],     // Array to store {score, skeletonUrl, feedback, originalFramePath, error} for each analyzed frame
+  topThreeFrames: [],           // Array to store the top 3 frames {score, skeletonUrl, feedback} for display
+  videoMetadata: {              // Object to hold metadata (duration, width, height) of the video being processed
+    duration: 0,
+    width: 0,
+    height: 0
+  },
+  frameExtractionCanvasContext: null, // Holds the canvas context for the hidden frameExtractorCanvas
+  frameExtractorVideoContext: null,  // Holds the video context for the hidden frameExtractorVideo (can be created when needed)
+  extractorVideoSrc: null, // Source for the hidden video element used in frame extraction
   },
 
+  // Method to initialize canvas and video contexts for frame extraction
+  initializeFrameExtractionResources: function() {
+    if (!this.data.frameExtractionCanvasContext) {
+      const ctx = wx.createCanvasContext('frameExtractorCanvas', this);
+      this.setData({ frameExtractionCanvasContext: ctx });
+      console.log('Frame extraction canvas context initialized.');
+    }
+    // Video context for frameExtractorVideo is created when its src is set,
+    // or can be created explicitly if needed for early interaction.
+    // For now, we'll rely on it being available after src is set.
+    // If direct control before loading is needed:
+    if (!this.data.frameExtractorVideoContext) {
+       const videoCtx = wx.createVideoContext('frameExtractorVideo', this);
+       this.setData({ frameExtractorVideoContext: videoCtx });
+       console.log('Frame extractor video context explicitly created.');
+    }
+  },
+
+  // Called when the hidden video's metadata is loaded
+  onVideoLoadMetadata: function(e) {
+    const { duration, width, height } = e.detail;
+    this.setData({
+      videoMetadata: { duration, width, height }
+    });
+    console.log('Video metadata loaded for frame extraction:', this.data.videoMetadata);
+    // Enhanced check for duration
+    if (!duration || duration <= 0) {
+      console.error('Invalid video metadata or duration:', e.detail);
+      this.setData({ isProcessingFrames: false }); // Ensure loading state is turned off
+      wx.showToast({ title: '视频加载失败，无法分析', icon: 'none' });
+      return;
+    }
+    this.startFrameExtractionLoop();
+  },
+
+  // Core logic for extracting frames
+  startFrameExtractionLoop: async function() {
+    // Reset states at the beginning of frame extraction.
+    this.setData({ 
+      isProcessingFrames: true, 
+      frameAnalysisResults: [], 
+      topThreeFrames: [],
+      // Consider resetting extractorVideoSrc if it causes issues being stale, though usually it's fine.
+      // extractorVideoSrc: null 
+    });
+    console.log('Starting frame extraction loop...');
+
+    const { duration, width, height } = this.data.videoMetadata;
+    let videoCtx = this.data.frameExtractorVideoContext;
+    const canvasCtx = this.data.frameExtractionCanvasContext;
+
+    if (!videoCtx) {
+        console.warn("frameExtractorVideoContext not found, attempting to create.");
+        videoCtx = wx.createVideoContext('frameExtractorVideo', this);
+        this.setData({ frameExtractorVideoContext: videoCtx });
+        if(!videoCtx) {
+            console.error('Failed to create frameExtractorVideoContext. Aborting frame extraction.');
+            this.setData({ isProcessingFrames: false });
+            wx.showToast({ title: '无法控制视频', icon: 'none' });
+            return;
+        }
+    }
+    
+    if (!canvasCtx) {
+      console.error('frameExtractionCanvasContext not found. Aborting frame extraction.');
+      this.setData({ isProcessingFrames: false });
+      wx.showToast({ title: '无法绘图', icon: 'none' });
+      return;
+    }
+
+    const canvasWidth = 360; 
+    const canvasHeight = Math.round(canvasWidth * (height / width)) || 640; 
+    console.log(`Canvas dimensions for extraction: ${canvasWidth}x${canvasHeight}`);
+
+    let extractedFramePaths = [];
+
+    for (let t = 0; t < duration; t++) {
+      console.log(`Seeking to ${t}s`);
+      videoCtx.seek(t);
+      
+      // Wait for seek to complete. Using a delay for now.
+      // TODO: Refactor to use onVideoSeeked or onVideoTimeUpdate for better reliability
+      await new Promise(resolve => setTimeout(resolve, 500)); 
+
+      console.log(`Drawing frame at ${t}s to canvas frameExtractorCanvas`);
+      // Attempting to draw by ID. The video element itself is 'frameExtractorVideo'.
+      canvasCtx.drawImage('frameExtractorVideo', 0, 0, canvasWidth, canvasHeight);
+      
+      // Wait for draw to complete
+      await new Promise(resolve => {
+        canvasCtx.draw(false, () => {
+          console.log(`Canvas draw completed for time ${t}s`);
+          resolve();
+        });
+      });
+
+      try {
+        const frameData = await wx.canvasToTempFilePath({
+          x: 0,
+          y: 0,
+          width: canvasWidth,
+          height: canvasHeight,
+          destWidth: canvasWidth,
+          destHeight: canvasHeight,
+          canvasId: 'frameExtractorCanvas',
+          fileType: 'jpg',
+          quality: 0.8
+        }, this); // 'this' context is important here
+        extractedFramePaths.push(frameData.tempFilePath);
+        console.log(`Extracted frame ${extractedFramePaths.length}/${Math.floor(duration)}: ${frameData.tempFilePath}`);
+      } catch (err) {
+        console.error(`Frame extraction to temp file failed at ${t}s:`, err);
+        // If one frame fails, log and continue. Consider a failure threshold later.
+      }
+    }
+
+    console.log('All frames extracted attempts finished. Paths:', extractedFramePaths);
+
+    if (extractedFramePaths.length > 0) {
+      this.analyzeFramesBatch(extractedFramePaths);
+    } else {
+      this.setData({ isProcessingFrames: false }); // Ensure this is set on failure
+      wx.showToast({ title: '未能成功提取任何帧', icon: 'none' });
+      console.warn('No frames were extracted from the video.');
+    }
+  },
+
+  uploadFrameForScoring: async function(framePath, poseId) {
+    return new Promise((resolve, reject) => {
+      wx.uploadFile({
+        url: 'https://yogamaster.aiforcause.cn/api/score_pose', // Actual API endpoint
+        filePath: framePath,
+        name: 'file', // Assuming 'file' is the expected name for the frame file by the API
+        formData: {
+          poseId: poseId,
+          // Add any other required parameters for the API, e.g., user_id if needed
+        },
+        success: (res) => {
+          try {
+            const resultData = JSON.parse(res.data);
+            // Assuming API returns a structure like { success: true, data: { score, feedback, skeleton_image_url } }
+            // or { success: false, message: "error message" }
+            if (res.statusCode === 200 && resultData.success) {
+              resolve({
+                score: resultData.data?.score,
+                feedback: resultData.data?.feedback,
+                skeletonUrl: resultData.data?.skeleton_image_url, // Key matches API assumption
+                originalFramePath: framePath
+              });
+            } else {
+              console.error('API Error for frame', framePath, 'Status:', res.statusCode, 'Response:', resultData);
+              reject({
+                error: `API error: ${resultData.message || 'Unknown error'} (Status: ${res.statusCode})`,
+                originalFramePath: framePath,
+                details: resultData
+              });
+            }
+          } catch (parseError) {
+            console.error('Error parsing API response for frame', framePath, parseError, res.data);
+            reject({
+              error: 'Failed to parse API response.',
+              originalFramePath: framePath,
+              details: res.data // Include raw response data for debugging
+            });
+          }
+        },
+        fail: (err) => {
+          console.error('wx.uploadFile failed for frame', framePath, err);
+          reject({
+            error: `Upload failed: ${err.errMsg}`,
+            originalFramePath: framePath,
+            details: err
+          });
+        }
+      });
+    });
+  },
+
+  analyzeFramesBatch: async function(framePathsArray) {
+    if (!framePathsArray || framePathsArray.length === 0) {
+      console.log('No frames to analyze.');
+      this.setData({ isProcessingFrames: false });
+      wx.showToast({ title: '没有提取到帧进行分析', icon: 'none' });
+      return;
+    }
+
+    this.setData({ isProcessingFrames: true }); 
+    wx.showLoading({ title: '分析帧中 (0%)...', mask: true });
+
+    // Enhanced check for poseId availability
+    if (!this.data.currentSequence || 
+        !this.data.currentSequence.poses[this.data.currentPoseIndex] || 
+        !this.data.currentSequence.poses[this.data.currentPoseIndex].id) {
+      console.error('Current pose ID is not available for analysis.');
+      this.setData({ isProcessingFrames: false });
+      wx.hideLoading(); // Hide loading before showing toast
+      wx.showToast({ title: '无法获取当前体式ID', icon: 'none' });
+      return;
+    }
+    const poseId = this.data.currentSequence.poses[this.data.currentPoseIndex].id;
+
+    let uploadPromises = [];
+    for (const framePath of framePathsArray) {
+      uploadPromises.push(this.uploadFrameForScoring(framePath, poseId));
+    }
+
+    const results = await Promise.allSettled(uploadPromises);
+    
+    let analysisResults = [];
+    let successfulUploads = 0;
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        analysisResults.push(result.value);
+        successfulUploads++;
+      } else {
+        console.error('Frame analysis failed:', result.reason);
+        analysisResults.push({
+          score: 0, 
+          feedback: '分析失败: ' + (result.reason.error || '未知错误'),
+          skeletonUrl: null, 
+          originalFramePath: result.reason.originalFramePath,
+          error: result.reason.details || result.reason.error
+        });
+      }
+      // Update loading message
+      const progress = Math.round(((index + 1) / framePathsArray.length) * 100);
+      wx.showLoading({ title: `分析帧中 (${progress}%)...`, mask: true });
+    });
+    
+    wx.hideLoading();
+    this.setData({
+      frameAnalysisResults: analysisResults,
+      // isProcessingFrames will be set to false by selectAndDisplayTopFrames or if errors occur there
+    });
+    
+    console.log('All frames analysis attempt complete:', analysisResults);
+
+    // Enhanced UI Feedback based on analysis results
+    const totalFrames = framePathsArray.length;
+    if (successfulUploads === 0 && totalFrames > 0) {
+      wx.showToast({ title: '所有帧分析失败', icon: 'none', duration: 2000 });
+    } else if (successfulUploads < totalFrames && successfulUploads > 0) {
+      wx.showToast({ title: `部分帧分析失败 (${successfulUploads}/${totalFrames} 成功)`, icon: 'none', duration: 2000 });
+    } else if (successfulUploads === totalFrames && totalFrames > 0) {
+      // This toast might be redundant if selectAndDisplayTopFrames shows a success message
+      // wx.showToast({ title: `所有帧分析成功!`, icon: 'success', duration: 2000 });
+      console.log("All frames analyzed successfully.");
+    }
+    // No specific toast if totalFrames is 0, as that's handled earlier.
+    
+    this.selectAndDisplayTopFrames(); // This will handle final UI updates and potential further toasts
+  },
+
+  selectAndDisplayTopFrames: function() {
+    const results = this.data.frameAnalysisResults;
+
+    // Ensure isProcessingFrames is turned off here as this is a final step in the flow.
+    this.setData({ isProcessingFrames: false });
+
+    if (!results || results.length === 0) {
+      console.log('No analysis results to select from for top frames.');
+      this.setData({ topThreeFrames: [] }); 
+      // If analyzeFramesBatch already showed "All frames analysis failed", this might be redundant.
+      // Consider if a toast is needed here if results are empty.
+      // For example, if analyzeFramesBatch didn't show a specific "all failed" toast.
+      return;
+    }
+
+    // Filter for valid results that have a numeric score
+    const validResults = results.filter(r => r && typeof r.score === 'number' && r.score > 0 && r.skeletonUrl);
+    
+    if (validResults.length === 0) {
+      console.log('No valid frames with scores found to display as top frames.');
+      this.setData({ topThreeFrames: [] });
+      // If analyzeFramesBatch indicated some successes but they didn't meet criteria (score > 0, skeletonUrl)
+      // then a toast here is useful.
+      if (results.some(r => r && typeof r.score === 'number')) { // Check if there were any results at all
+         wx.showToast({ title: '未选出足够评分的帧展示', icon: 'none' });
+      }
+      return;
+    }
+
+    // Sort by score in descending order
+    validResults.sort((a, b) => b.score - a.score);
+
+    // Select top 3 frames
+    const topFrames = validResults.slice(0, 3);
+
+    this.setData({ topThreeFrames: topFrames });
+    console.log('Top 3 frames selected for display:', topFrames);
+
+    // Decision on modals:
+    // The new topThreeFrames UI is designed to be a separate section.
+    // If the regular single-video score modal (showScoreModal) is open,
+    // it might be confusing to also show the top three.
+    // For now, let's explicitly hide the single score modal if it's showing,
+    // and ensure the camera modal is also closed to provide a clean view for top frames.
+    if (this.data.showScoreModal) {
+      this.setData({ showScoreModal: false });
+    }
+    if (this.data.showCamera) {
+        // This implies the user is done with recording and camera view.
+        // However, if the top 3 frames are shown *within* the camera modal area,
+        // this line would be removed. Based on previous WXML, it's outside.
+        // Closing camera modal makes sense to show the results clearly.
+        this.setData({ showCamera: false });
+    }
+
+    if (topFrames.length > 0) {
+        wx.showToast({
+            title: `最佳 ${topFrames.length} 帧已显示`,
+            icon: 'success',
+            duration: 2000
+        });
+    }
+  },
+
+  // Entry point for processing video for frames
+  processVideoForFrames: function(videoPath) {
+    console.log('Starting video processing for frames:', videoPath);
+    // Setting isProcessingFrames true here provides immediate feedback
+    this.setData({ isProcessingFrames: true, topThreeFrames: [], frameAnalysisResults: [] }); 
+    wx.showLoading({ title: '准备视频分析...', mask: true }); // Mask to prevent user interaction
+    
+    this.initializeFrameExtractionResources(); // This is synchronous
+    
+    // Set the src for the hidden video, which should trigger onVideoLoadMetadata
+    this.setData({ extractorVideoSrc: videoPath }, () => {
+        // wx.hideLoading(); // Loading is hidden by onVideoLoadMetadata or its error paths
+        console.log('extractorVideoSrc has been set. Video should start loading.');
+        // The actual processing starts when onVideoLoadMetadata is triggered.
+        // If onVideoLoadMetadata fails to trigger, isProcessingFrames might remain true.
+        // Consider a timeout here to reset isProcessingFrames if metadata doesn't load.
+        // For now, assume onVideoLoadMetadata or onVideoError (if we had it) would handle it.
+    });
+  },
+  
+  // Optional: Placeholder for onVideoTimeUpdate
+  onVideoTimeUpdate: function(e) {
+    // console.log('Video timeupdate (frame extractor):', e.detail.currentTime);
+  },
+
+  // Optional: Placeholder for onVideoSeeked
+  onVideoSeeked: function(e) {
+    // console.log('Video seeked (frame extractor):', e.detail.currentTime);
+  },
+
+  // IMPORTANT NOTE: For videos recorded using the in-page camera, 
+  // frame extraction and analysis are now automatically started by processVideoForFrames()
+  // called from stopRecording(). This function (uploadAndScore) as it relates to 
+  // this.data.recordedVideo (which is a video path) is superseded by that new flow.
+  // If this function was also intended to handle single IMAGE uploads from other sources 
+  // (e.g. chosen from gallery), that specific logic path would need to be distinct and preserved.
   async uploadAndScore(){
     if(!this.data.recordedVideo){wx.showToast({title:'没有录制的视频',icon:'none'});return;}
     this.setData({isUploading:true});
@@ -271,6 +637,12 @@ Page({
     this.data.cameraContext.stopRecord({
       success: (res) => {
         this.setData({ isRecording: false, recordedVideo: res.tempVideoPath });
+        // ---- MODIFICATION: Start frame processing instead of direct upload ----
+        console.log('Video recording stopped. Temp path:', res.tempVideoPath);
+        this.processVideoForFrames(res.tempVideoPath);
+        // Comment out or remove direct upload if frame analysis replaces it or precedes it
+        // this.uploadAndScore(); 
+        // ---- END MODIFICATION ----
       },
       fail: (err) => {
         console.error("Stop recording failed", err);

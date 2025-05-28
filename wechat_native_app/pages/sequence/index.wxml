@@ -78,15 +78,38 @@
         <!-- Usually, you'd upload it then play the remote URL, or use a more complex setup -->
         <text class="videoPathText">路径: {{recordedVideo}} (预览通常需要上传后)</text>
         <view class="videoActions">
-          <button bindtap="uploadAndScore" class="cameraActionButton">上传评分</button>
+          <button 
+            wx:if="{{!isProcessingFrames && (!topThreeFrames || topThreeFrames.length === 0)}}" 
+            bindtap="uploadAndScore" 
+            class="cameraActionButton">上传评分</button>
           <button bindtap="retakeVideo" class="cameraActionButton secondary">重新录制</button>
         </view>
       </view>
       <view wx:if="{{isUploading}}" class="uploadingIndicator">
         <text>上传中...</text>
       </view>
+
+      <!-- Frame Processing Indicator -->
+      <view wx:if="{{isProcessingFrames}}" class="frameProcessingIndicator">
+        <text>正在提取和分析帧...</text>
+        <!-- Optional: Add a wx:for loop here if you plan to show individual frame progress -->
+      </view>
     </view>
   </view>
+
+  <!-- Hidden elements for frame extraction -->
+  <video
+    id="frameExtractorVideo"
+    src="{{recordedVideo}}" 
+    style="display: none; width: 1px; height: 1px; position: absolute; top: -1000px; left: -1000px;"
+    bindloadedmetadata="onVideoLoadMetadata"
+    bindtimeupdate="onVideoTimeUpdate"
+  ></video>
+  <canvas
+    canvas-id="frameExtractorCanvas"
+    id="frameExtractorCanvas"
+    style="display: none; width: 360px; height: 640px; position: absolute; top: -2000px; left: -1000px;"
+  ></canvas>
 
   <!-- Score Modal -->
   <view wx:if="{{showScoreModal}}" class="modalOverlay">
@@ -113,6 +136,18 @@
         <text wx:for="{{5}}" wx:key="*this" class="star {{index < (poseScore.score / 20) ? 'filled' : ''}}">*</text>
       </view>
       <button bindtap="closeScoreModal" class="cameraActionButton">关闭</button>
+    </view>
+  </view>
+
+  <!-- Top 3 Scored Frames Display -->
+  <view wx:if="{{topThreeFrames && topThreeFrames.length > 0}}" class="topFramesContainer">
+    <text class="topFramesTitle">最佳帧分析结果</text>
+    <view wx:for="{{topThreeFrames}}" wx:key="index" class="frameResultItem">
+      <image class="frameSkeletonImage" src="{{item.skeletonUrl}}" mode="aspectFit" />
+      <view class="frameInfo">
+        <text class="frameScore">评分: {{item.score}}</text>
+        <text class="frameFeedback">AI建议: {{item.feedback}}</text>
+      </view>
     </view>
   </view>
 </view>
