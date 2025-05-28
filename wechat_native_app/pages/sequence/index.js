@@ -223,7 +223,7 @@ Page({
   },
 
   uploadFrameForScoring: function(framePath, poseId) {
-    const BASE_API_URL = 'https://yogamaster.aiforcause.cn';
+    const BASE_API_URL = 'https://api.yogasmart.cn';
     const SCORING_ENDPOINT = BASE_API_URL + '/detect-pose-file';
     let task; // Declare task variable
     const promise = new Promise((resolve, reject) => {
